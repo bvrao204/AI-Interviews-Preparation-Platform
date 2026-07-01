@@ -12,7 +12,7 @@ An interactive, AI-powered mock interview preparation web application built with
 ## Tech Stack
 - **Python**
 - **Streamlit** (UI development)
-- **Google Gemini API** (`gemini-1.5-flash` / `gemini-1.5-pro`)
+- **Google Gemini API** (`gemini-2.5-flash` / `gemini-2.5-pro`)
 - **Plotly** (Interactive scoring charts)
 
 ## Getting Started
@@ -45,3 +45,4 @@ Start the Streamlit application:
 streamlit run app.py
 ```
 This will open the application in your default web browser at `http://localhost:8501`.
+
