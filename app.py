@@ -73,24 +73,56 @@ authenticator = stauth.Authenticate(
     _auth_config["cookie"]["expiry_days"],
 )
 
-# Render login widget
-authenticator.login()
+# Render login/register widget if not authenticated
 auth_status = st.session_state.get("authentication_status")
-auth_name   = st.session_state.get("name", "")
-auth_user   = st.session_state.get("username", "")
 
-if auth_status is False:
-    st.error("❌ Username or password is incorrect.")
-    st.stop()
-elif auth_status is None:
+if not auth_status:
     st.markdown("""
-    <div style='text-align:center;padding:40px 0 10px;'>
+    <div style='text-align:center;padding:30px 0 10px;'>
         <div style='font-size:3rem;'>🎙️</div>
         <h2 style='color:#818CF8;margin:0;'>AI Interview Prep Platform</h2>
-        <p style='color:#9CA3AF;margin-top:8px;'>Please log in to continue</p>
-        <p style='color:#6B7280;font-size:0.85rem;'>Demo credentials: <code>candidate</code> / <code>Demo@123</code></p>
+        <p style='color:#9CA3AF;margin-top:8px;'>Please sign in or create an account to start</p>
     </div>""", unsafe_allow_html=True)
+
+    tab_login, tab_register = st.tabs(["🔑 Login", "📝 Create Account"])
+
+    with tab_login:
+        authenticator.login()
+        if st.session_state.get("authentication_status") is False:
+            st.error("❌ Username or password is incorrect.")
+            st.markdown("""
+            <div style='background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);margin-top:10px;'>
+                <strong style='color:#818CF8;'>Default System Credentials:</strong><br/>
+                💼 <strong>Admin:</strong> <code>admin</code> / <code>Admin@123</code><br/>
+                🎓 <strong>Candidate:</strong> <code>candidate</code> / <code>Demo@123</code>
+            </div>""", unsafe_allow_html=True)
+        elif st.session_state.get("authentication_status") is None:
+            st.markdown("""
+            <div style='background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);margin-top:10px;'>
+                <strong style='color:#818CF8;'>Default System Credentials:</strong><br/>
+                💼 <strong>Admin:</strong> <code>admin</code> / <code>Admin@123</code><br/>
+                🎓 <strong>Candidate:</strong> <code>candidate</code> / <code>Demo@123</code>
+            </div>""", unsafe_allow_html=True)
+
+    with tab_register:
+        try:
+            # Renders register form without complex captcha for easier registration
+            reg_result = authenticator.register_user(captcha=False)
+            if reg_result:
+                email_reg, username_reg, name_reg = reg_result
+                if email_reg:
+                    # Set role to candidate for new registrations
+                    _auth_config["credentials"]["usernames"][username_reg]["role"] = "candidate"
+                    with open(_auth_config_path, "w") as f:
+                        yaml.dump(_auth_config, f, default_flow_style=False)
+                    st.success("🎉 Account created successfully! Please switch to the **Login** tab to sign in.")
+        except Exception as e:
+            st.error(f"Error creating account: {e}")
+            
     st.stop()
+
+auth_name   = st.session_state.get("name", "")
+auth_user   = st.session_state.get("username", "")
 
 # Register user on first login
 register_user(auth_user, auth_name, role=_auth_config["credentials"]["usernames"].get(auth_user, {}).get("role", "candidate"))
