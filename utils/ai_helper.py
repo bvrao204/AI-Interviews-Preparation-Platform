@@ -360,18 +360,31 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
         return {
             "overall_summary": f"In this mock interview for the {level} {role} role, you demonstrated strong communication skills and solid domain knowledge. To improve further, focus on providing more specific, metric-driven examples of your achievements and structuring technical design decisions clearly.",
             "scores": {
-                "technical": 80,
+                "technical": 82,
                 "communication": 85,
-                "problem_solving": 78
+                "confidence": 78,
+                "problem_solving": 80,
+                "overall_readiness": 81
             },
+            "skill_gap_analysis": {
+                "strengths": [f"{role} Concepts", "Communication Skills", "Problem Solving"],
+                "weaknesses": ["System Design Architecture", "Advanced Algorithms", "Testing Methodologies"],
+                "recommended_learning_path": [f"Deep dive into {role} core frameworks", "Practice System Design fundamentals", "Conduct another mock interview focused on coding"]
+            },
+            "learning_roadmap": [
+                {"week": "Week 1", "topic": f"Deep Dive into Core {role} topics"},
+                {"week": "Week 2", "topic": "System Design Architecture & Caching"},
+                {"week": "Week 3", "topic": "Data Structures, Algorithms & LeetCode"},
+                {"week": "Week 4", "topic": "Complete Mock Interview & Testing Practice"}
+            ],
             "breakdown": breakdown
         }
         
     system_instruction = (
         "You are an elite Career Coach and Technical Interview Evaluator. Analyze the transcript of the "
         "mock interview and provide a comprehensive, constructive performance critique. Evaluate "
-        "responses based on three core pillars: 1) Technical & Domain Knowledge, 2) Communication Skills, "
-        "and 3) Problem Solving & Analytical Skills. Assign scores from 0 to 100."
+        "responses based on four core pillars: 1) Technical & Domain Knowledge, 2) Communication Skills, "
+        "3) Confidence & Professionalism, and 4) Problem Solving & Analytical Skills. Assign scores from 0 to 100."
     )
     
     # Format the transcript
@@ -386,8 +399,9 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
     Interview Transcript:
     {transcript}
     
-    Analyze the conversation above and return a structured feedback JSON. Highlight what was done well, "
-    what needs improvement, and give a model answer for each question asked.
+    Analyze the conversation above and return a structured feedback JSON. Highlight what was done well,
+    what needs improvement, and give a model answer for each question asked. In addition, perform a
+    skill gap analysis identifying strengths and weaknesses, and construct a 4-week learning roadmap.
     
     Return your evaluation strictly in the following JSON format:
     {{
@@ -395,8 +409,21 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
         "scores": {{
             "technical": 85,
             "communication": 90,
-            "problem_solving": 80
+            "confidence": 80,
+            "problem_solving": 80,
+            "overall_readiness": 84
         }},
+        "skill_gap_analysis": {{
+            "strengths": ["Skill A", "Skill B", ...],
+            "weaknesses": ["Skill C", "Skill D", ...],
+            "recommended_learning_path": ["Recommendation 1", "Recommendation 2", ...]
+        }},
+        "learning_roadmap": [
+            {{"week": "Week 1", "topic": "Focus topic for week 1 based on weaknesses"}},
+            {{"week": "Week 2", "topic": "Focus topic for week 2"}},
+            {{"week": "Week 3", "topic": "Focus topic for week 3"}},
+            {{"week": "Week 4", "topic": "Focus topic for week 4 (e.g. Mock Interview)"}}
+        ],
         "breakdown": [
             {{
                 "question": "The question asked by the interviewer",
@@ -438,8 +465,21 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
             "scores": {
                 "technical": 50,
                 "communication": 50,
-                "problem_solving": 50
+                "confidence": 50,
+                "problem_solving": 50,
+                "overall_readiness": 50
             },
+            "skill_gap_analysis": {
+                "strengths": ["Communication"],
+                "weaknesses": ["Technical Architecture"],
+                "recommended_learning_path": ["Study application fundamentals"]
+            },
+            "learning_roadmap": [
+                {"week": "Week 1", "topic": "Fundamentals Review"},
+                {"week": "Week 2", "topic": "Mock Interviews Practice"},
+                {"week": "Week 3", "topic": "System Architecture Principles"},
+                {"week": "Week 4", "topic": "Final Practice Session"}
+            ],
             "breakdown": [
                 {
                     "question": "N/A",
@@ -450,6 +490,153 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
                 }
             ]
         }
+
+def evaluate_answer_correctness(api_key: str, question: str, answer: str, demo_mode: bool = False) -> dict:
+    """
+    Evaluates a single candidate answer against a question to determine correctness rating.
+    Returns:
+        dict: {"rating": "Correct" | "Incorrect" | "Partially Correct", "reason": "..."}
+    """
+    if demo_mode or api_key == "demo" or not api_key:
+        # Simulate correctness based on response length or content
+        words = answer.strip().split()
+        if len(words) < 5:
+            return {"rating": "Incorrect", "reason": "The answer is too brief or contains no substantial explanation."}
+        elif len(words) > 20:
+            return {"rating": "Correct", "reason": "Demonstrated good elaboration and relevant detail."}
+        else:
+            return {"rating": "Partially Correct", "reason": "Answered the question but could have provided more depth."}
+
+    system_instruction = (
+        "You are an expert technical interviewer. Evaluate the candidate's response to the given question "
+        "and output a correctness rating ('Correct', 'Incorrect', or 'Partially Correct') and a short, 1-sentence reason."
+    )
+
+    prompt = f"""
+    Question: {question}
+    Candidate Answer: {answer}
+
+    Evaluate if the answer is:
+    1. 'Correct' (candidate answered accurately and demonstrated clear understanding)
+    2. 'Partially Correct' (candidate answered some aspects correctly but missed key points or was vague)
+    3. 'Incorrect' (candidate answered wrong, showed clear misunderstanding, or gave a non-substantive response)
+
+    Return your output strictly as a JSON object with the following structure:
+    {{
+        "rating": "Correct" | "Incorrect" | "Partially Correct",
+        "reason": "A 1-sentence evaluation detail."
+    }}
+    """
+
+    try:
+        response = safe_generate_content(
+            api_key=api_key,
+            prompt=prompt,
+            model_name="gemini-2.5-flash",
+            system_instruction=system_instruction,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        cleaned_text = clean_json_string(response.text)
+        data = json.loads(cleaned_text)
+        # Validate the format
+        if data.get("rating") not in ["Correct", "Incorrect", "Partially Correct"]:
+            data["rating"] = "Partially Correct"
+        if "reason" not in data:
+            data["reason"] = "Processed evaluation."
+        return data
+    except Exception as e:
+        logging.error(f"Error evaluating answer: {e}")
+        return {"rating": "Partially Correct", "reason": "System evaluation encountered a transient error."}
+
+def generate_adaptive_question(api_key: str, role: str, level: str, chat_history: list, current_difficulty: str, resume_text: str, job_description: str, demo_mode: bool = False) -> str:
+    """
+    Generates a single context-aware question corresponding to the current_difficulty level,
+    referencing the candidate's resume/JD and preceding discussion, without repeating topics.
+    """
+    if demo_mode or api_key == "demo" or not api_key:
+        # Provide representative mock questions based on difficulty
+        if current_difficulty == "Beginner":
+            questions = [
+                f"Can you walk me through a basic programming project that you've built using your core skills in {role}?",
+                "Tell me about a time you had to learn a new technology quickly. How did you approach it?",
+                "What is a variable, and how do you manage local state in your applications?"
+            ]
+        elif current_difficulty == "Intermediate":
+            questions = [
+                "How do you design a database schema for a simple task management or user profiling application?",
+                "Describe a situation where you disagreed with a team member on a technical decision. How was it resolved?",
+                "Explain how you handle exceptions and log errors in a web service or production environment."
+            ]
+        else: # Advanced
+            questions = [
+                "Describe how you would design a highly scalable, distributed caching system for large user bases.",
+                "How do you analyze and optimize performance bottlenecks or database queries under high concurrency?",
+                "Tell me about the most complex technical challenge you've faced recently. What trade-offs did you make?"
+            ]
+        
+        # Pick one that isn't in chat history yet
+        for q in questions:
+            if not any(q in msg.get("text", "") for msg in chat_history):
+                return q
+        return questions[0]
+
+    system_instruction = (
+        f"You are an elite Technical Recruiter and Interview Designer. Your task is to design a single "
+        f"interview question tailored to the candidate's resume and target job description, matched to the "
+        f"difficulty level: {current_difficulty}. "
+        "Review the prior chat history to ensure you build on the conversation dynamically and DO NOT repeat any question or topic."
+    )
+
+    # Format history
+    history_str = ""
+    for msg in chat_history:
+        role_label = "Interviewer" if msg["role"] == "ai" else "Candidate"
+        history_str += f"{role_label}: {msg['text']}\n"
+
+    prompt = f"""
+    Target Role: {role}
+    Experience Level: {level}
+    Current Difficulty Target: {current_difficulty}
+    
+    Candidate Full Resume Text:
+    {resume_text}
+    
+    Target Job Description:
+    {job_description}
+
+    Prior Interview Conversation:
+    {history_str}
+
+    Design EXACTLY ONE distinct interview question matching the difficulty level: {current_difficulty}.
+    Ensure the question is:
+    - Custom-tailored to the resume and job description.
+    - Specific to the target difficulty level:
+      - Beginner: Basic resume validations, simple concept definitions, or starter behavioral prompts.
+      - Intermediate: Scenario-based questions, coding design patterns, debugging, or API setup logic.
+      - Advanced: Architectural scaling, system design trade-offs, security, or complex engineering design constraints.
+    - Highly varied in QUESTION TYPE compared to previous questions in the conversation. Cycle dynamically between:
+      1. Behavioral (e.g., leadership, conflict resolution, teamwork)
+      2. Foundational/Theoretical knowledge
+      3. Scenario/Situational problem-solving
+      4. Past Project experiences
+      5. Algorithms/Data Structures
+    - Contextually progressive, transitioning from previous replies.
+    - Unique and doesn't repeat any topics or question types already asked consecutively.
+    Return only the question text as your entire response.
+    """
+
+    try:
+        response = safe_generate_content(
+            api_key=api_key,
+            prompt=prompt,
+            model_name="gemini-2.5-flash",
+            system_instruction=system_instruction
+        )
+        return response.text.strip()
+    except Exception as e:
+        logging.error(f"Error generating adaptive question: {e}")
+        # fallback
+        return f"Let's proceed with a question related to {role} development. Can you tell me about the best practices you follow for code review and testing at a {current_difficulty} level?"
 
 def text_to_speech_bytes(text: str) -> bytes:
     """Converts text into audio bytes using local TTS via pyttsx3."""

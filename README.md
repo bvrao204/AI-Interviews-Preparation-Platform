@@ -6,13 +6,12 @@ An interactive, AI-powered mock interview preparation web application built with
 
 ## 🚀 Key Features
 
-- **Custom Mock Interviews**: Generates realistic, non-repetitive interview questions tailored directly to your experience level (Junior, Mid, Senior, Lead) and target job description.
-- **Dynamic Difficulty Progression**: Questions progress organically from Easy (resume validation/domain intro) to Medium (practical operational/design) to Hard (system architecture/leadership).
-- **Speech-to-Text Integration**: Record responses directly using browser audio inputs, transcribed in real-time by the Gemini multimodal engine.
-- **AI Voice Assistant**: Listen to the interviewer ask questions via natural local text-to-speech playback (`pyttsx3`).
-- **Comprehensive Scorecards**: Evaluates candidates across three core dimensions (Technical & Domain, Communication, Problem Solving) with interactive Plotly polar radar charts.
-- **Detailed Critiques & Model Answers**: Provides question-by-question rating explanations, itemized critiques, and exemplary model answers for learning.
-- **Demo Mode**: Allows users to test the entire platform, UI, and workflows using pre-configured mock AI data without needing a Gemini API key.
+- **Adaptive Difficulty Interviews**: Questions scale dynamically during the interview (Beginner ➡️ Intermediate ➡️ Advanced) based on your real-time answers. Track your progression via an interactive visual timeline!
+- **Varied Question Matrix**: The AI dynamically cycles through Behavioral, Theoretical, Scenario-based, Project-related, and Algorithmic questions to simulate comprehensive human interviews.
+- **AI Performance Dashboard & Scorecards**: Evaluates candidates across five detailed dimensions (Technical Skills, Communication, Confidence, Problem Solving, Overall Readiness) rendered beautifully on interactive Plotly radar charts.
+- **Skill Gap Analysis & Learning Roadmap**: Generates a personalized breakdown of Strengths & Weaknesses alongside a tailored 4-week structured learning schedule to conquer your target role.
+- **Speech-to-Text & AI Voice Assistant**: Record responses directly via browser audio inputs, transcribed by Gemini, and listen to the interviewer via local text-to-speech playback (`pyttsx3`).
+- **Demo Mode & IDE Tuned**: Launch immediately without an API key using pre-loaded mock data. Includes built-in configurations (`.vscode/settings.json`, `pyrightconfig.json`) to eliminate VS Code false-positive warnings out-of-the-box.
 
 ---
 
@@ -40,9 +39,11 @@ graph TD
 
 ```
 AI-Interviews-Preparation-Platform/
+├── .vscode/              # Contains settings.json to optimize IDE linting
 ├── .env                  # Stores your private Google Gemini API Key
 ├── .env.example          # Template environment file
 ├── .gitignore            # Ensures virtual environments (.venv) and API keys are not pushed to Git
+├── pyrightconfig.json    # Ignores .venv from static python analysis
 ├── README.md             # Project documentation (this file)
 ├── requirements.txt      # Python package requirements
 ├── app.py                # Main Streamlit application entrypoint (UI & page layout)
