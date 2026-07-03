@@ -8,12 +8,12 @@ credentials:
     admin:
       email: admin@aiinterview.com
       name: Admin User
-      password: "$2b$12$KIEfmcnrS/rD7JznS.S3BODxwAj5RNJz5E3EGd4XOidwpD7eJsMeW"
+      password: "$2b$12$xYEE9cOuCxDf2FMFvcxcZudWImG4gLMpFWxxycip74BUR19.6QsGm"
       role: admin
     candidate:
       email: candidate@aiinterview.com
       name: Demo Candidate
-      password: "$2b$12$nKoU0wY.mYKRZ6jcxbw4A.nnflTxopxBMmB0Z.HpyXDxEV3Ufexxy"
+      password: "$2b$12$mg5HNhiTxRhb0PNPqS1yWOhAykPP3DnT3dktWdmA4jqyr.nPINtKC"
       role: candidate
 
 # Default passwords (change these!):
