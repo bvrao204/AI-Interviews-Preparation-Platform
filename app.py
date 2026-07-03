@@ -427,6 +427,60 @@ if nav_option == "🏠 Home":
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Platform User Guidelines Section ──
+    st.markdown("<hr style='border:1px solid rgba(255,255,255,0.08);margin-top:50px;margin-bottom:40px;'/>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: #F3F4F6;'>📖 Platform User Guidelines & Walkthrough</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #9CA3AF; font-size: 0.95rem; margin-bottom: 30px;'>Step-by-step instructions to configure and navigate all modules of the platform successfully</p>", unsafe_allow_html=True)
+
+    g1, g2, g3 = st.columns(3, gap="medium")
+
+    with g1:
+        st.markdown("""
+        <div style='background:rgba(30,41,59,0.4);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:20px;min-height:220px;'>
+            <div style='display:flex;align-items:center;gap:10px;margin-bottom:12px;'>
+                <span style='background:#818CF8;color:white;width:28px;height:28px;border-radius:50%;display:flex;justify-content:center;align-items:center;font-weight:700;font-size:0.9rem;'>1</span>
+                <strong style='color:#F3F4F6;font-size:1.05rem;'>Configure & Setup</strong>
+            </div>
+            <ul style='color:#9CA3AF;font-size:0.88rem;padding-left:18px;margin:0;'>
+                <li style='margin-bottom:8px;'>Go to the <strong>📊 Dashboard & Setup</strong> tab.</li>
+                <li style='margin-bottom:8px;'>Upload your <strong>Resume (PDF)</strong> for automatic skill parsing.</li>
+                <li style='margin-bottom:8px;'>Provide a target <strong>Job Description (JD)</strong> or keep the default software engineering track.</li>
+                <li style='margin-bottom:8px;'>Enter your <strong>Gemini API Key</strong> in the sidebar, or enable <strong>Demo Mode 🧪</strong> to proceed instantly.</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with g2:
+        st.markdown("""
+        <div style='background:rgba(30,41,59,0.4);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:20px;min-height:220px;'>
+            <div style='display:flex;align-items:center;gap:10px;margin-bottom:12px;'>
+                <span style='background:#34D399;color:white;width:28px;height:28px;border-radius:50%;display:flex;justify-content:center;align-items:center;font-weight:700;font-size:0.9rem;'>2</span>
+                <strong style='color:#F3F4F6;font-size:1.05rem;'>Interview & Gaze</strong>
+            </div>
+            <ul style='color:#9CA3AF;font-size:0.88rem;padding-left:18px;margin:0;'>
+                <li style='margin-bottom:8px;'>Click <strong>🚀 Start Mock Interview</strong> to load the mock room.</li>
+                <li style='margin-bottom:8px;'>Grant camera access for the <strong>👁️ Eye Contact Tracker</strong> to log focus metrics.</li>
+                <li style='margin-bottom:8px;'>In <strong>Standard Q&A</strong>, record audio responses. In <strong>Technical Coding</strong>, write code in the Ace Editor.</li>
+                <li style='margin-bottom:8px;'>Submit your answer to check correctness and view the <strong>🧠 AI Coach</strong> lessons.</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with g3:
+        st.markdown("""
+        <div style='background:rgba(30,41,59,0.4);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:20px;min-height:220px;'>
+            <div style='display:flex;align-items:center;gap:10px;margin-bottom:12px;'>
+                <span style='background:#EC4899;color:white;width:28px;height:28px;border-radius:50%;display:flex;justify-content:center;align-items:center;font-weight:700;font-size:0.9rem;'>3</span>
+                <strong style='color:#F3F4F6;font-size:1.05rem;'>Feedback & Roadmaps</strong>
+            </div>
+            <ul style='color:#9CA3AF;font-size:0.88rem;padding-left:18px;margin:0;'>
+                <li style='margin-bottom:8px;'>Go to <strong>📈 Performance Feedback</strong> to view metrics and overall hiring outcomes.</li>
+                <li style='margin-bottom:8px;'>Explore <strong>📈 Analytics</strong> for Plotly trend charts, radar charts, and eye gaze logs.</li>
+                <li style='margin-bottom:8px;'>Visit <strong>🔬 Skill Intelligence</strong> for interactive network graphs, gap analyses, and curated YouTube/Book roadmap links.</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
 # ----------------- PAGE 1: DASHBOARD & SETUP -----------------
 elif nav_option == "📊 Dashboard & Setup":
     st.markdown("<div class='main-title' style='font-size: 2.2rem !important;'>Dashboard & Setup</div>", unsafe_allow_html=True)
