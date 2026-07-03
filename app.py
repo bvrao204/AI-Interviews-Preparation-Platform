@@ -49,6 +49,16 @@ start_eye_tracker_server()
 # Load environment variables
 load_dotenv(override=True)
 
+def hex_to_rgba(hex_str: str, alpha: float = 0.1) -> str:
+    """Converts a standard 3/6-digit hex color to a Plotly-safe rgba string."""
+    hex_clean = hex_str.lstrip('#')
+    if len(hex_clean) == 3:
+        hex_clean = "".join(c * 2 for c in hex_clean)
+    r = int(hex_clean[0:2], 16)
+    g = int(hex_clean[2:4], 16)
+    b = int(hex_clean[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
 
 # Page configuration
 st.set_page_config(
@@ -1687,7 +1697,7 @@ elif nav_option == "📈 Analytics":
             fig_area.add_trace(go.Scatter(
                 x=labels, y=vals, name=name, mode="lines+markers",
                 line=dict(color=color, width=2.5),
-                fill="tozeroy", fillcolor=color.replace(")", ",0.06)").replace("rgb", "rgba") if "rgb" in color else color+"18",
+                fill="tozeroy", fillcolor=hex_to_rgba(color, 0.08),
                 marker=dict(size=8, color=color)
             ))
         fig_area.update_layout(
