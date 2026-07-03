@@ -1,0 +1,21 @@
+cookie:
+  expiry_days: 7
+  key: "ai_interview_platform_secret_key_2024"
+  name: "ai_interview_auth"
+
+credentials:
+  usernames:
+    admin:
+      email: admin@aiinterview.com
+      name: Admin User
+      password: "$2b$12$KIEfmcnrS/rD7JznS.S3BODxwAj5RNJz5E3EGd4XOidwpD7eJsMeW"
+      role: admin
+    candidate:
+      email: candidate@aiinterview.com
+      name: Demo Candidate
+      password: "$2b$12$nKoU0wY.mYKRZ6jcxbw4A.nnflTxopxBMmB0Z.HpyXDxEV3Ufexxy"
+      role: candidate
+
+# Default passwords (change these!):
+# admin     → Admin@123
+# candidate → Demo@123

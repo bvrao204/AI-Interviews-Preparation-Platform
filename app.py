@@ -1,10 +1,29 @@
 import streamlit as st
 import os
+import yaml
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import plotly.graph_objects as go
+import plotly.express as px
+import streamlit_authenticator as stauth
+from yaml.loader import SafeLoader
 
 # Import our utility functions
+from streamlit_ace import st_ace
 from utils.css_styles import inject_custom_css
+from utils.recruiter_store import add_candidate, get_candidates, to_csv, clear_store
+from utils.history_store import add_session, get_history, clear_history, TRACKED_METRICS
+from utils.data_store import (
+    load_history as ds_load_history, append_history_session,
+    load_candidates as ds_load_candidates, append_candidate as ds_append_candidate,
+    load_users, save_users, delete_user, register_user,
+    load_questions, add_question, delete_question,
+    get_analytics_summary
+)
+from utils.skill_graph import (
+    build_skill_network_chart, predict_skill_gap,
+    predict_difficulty, get_resources, categorize_skills
+)
 from utils.resume_parser import parse_pdf_resume
 from utils.ai_helper import (
     analyze_resume_ai,
@@ -15,10 +34,12 @@ from utils.ai_helper import (
     evaluate_interview_feedback,
     text_to_speech_bytes,
     evaluate_answer_correctness,
-    generate_adaptive_question
+    generate_adaptive_question,
+    generate_ai_coaching
 )
 # Load environment variables
 load_dotenv(override=True)
+
 
 # Page configuration
 st.set_page_config(
@@ -31,9 +52,44 @@ st.set_page_config(
 # Inject custom styling
 inject_custom_css()
 
+# ── Authentication Setup ──────────────────────────────────────────────────
+_auth_config_path = os.path.join(os.path.dirname(__file__), "auth_config.yaml")
+with open(_auth_config_path) as f:
+    _auth_config = yaml.load(f, Loader=SafeLoader)
+
+authenticator = stauth.Authenticate(
+    _auth_config["credentials"],
+    _auth_config["cookie"]["name"],
+    _auth_config["cookie"]["key"],
+    _auth_config["cookie"]["expiry_days"],
+)
+
+# Render login widget
+authenticator.login()
+auth_status = st.session_state.get("authentication_status")
+auth_name   = st.session_state.get("name", "")
+auth_user   = st.session_state.get("username", "")
+
+if auth_status is False:
+    st.error("❌ Username or password is incorrect.")
+    st.stop()
+elif auth_status is None:
+    st.markdown("""
+    <div style='text-align:center;padding:40px 0 10px;'>
+        <div style='font-size:3rem;'>🎙️</div>
+        <h2 style='color:#818CF8;margin:0;'>AI Interview Prep Platform</h2>
+        <p style='color:#9CA3AF;margin-top:8px;'>Please log in to continue</p>
+        <p style='color:#6B7280;font-size:0.85rem;'>Demo credentials: <code>candidate</code> / <code>Demo@123</code></p>
+    </div>""", unsafe_allow_html=True)
+    st.stop()
+
+# Register user on first login
+register_user(auth_user, auth_name, role=_auth_config["credentials"]["usernames"].get(auth_user, {}).get("role", "candidate"))
+
+
 # Initialize session state variables
 if "current_page" not in st.session_state:
-    st.session_state.current_page = "📊 Dashboard & Setup"
+    st.session_state.current_page = "🏠 Home"
 # Initialize api_key from environment variables if not already set by user
 if "demo_mode" not in st.session_state:
     st.session_state.demo_mode = False
@@ -69,6 +125,20 @@ if "custom_questions" not in st.session_state:
     st.session_state.custom_questions = []
 if "skills" not in st.session_state:
     st.session_state.skills = []
+if "projects" not in st.session_state:
+    st.session_state.projects = []
+if "education" not in st.session_state:
+    st.session_state.education = []
+if "experience" not in st.session_state:
+    st.session_state.experience = []
+if "certifications" not in st.session_state:
+    st.session_state.certifications = []
+if "soft_skills" not in st.session_state:
+    st.session_state.soft_skills = []
+if "technical_skills" not in st.session_state:
+    st.session_state.technical_skills = []
+if "candidate_profile" not in st.session_state:
+    st.session_state.candidate_profile = ""
 if "evaluation_results" not in st.session_state:
     st.session_state.evaluation_results = None
 if "recorder_key" not in st.session_state:
@@ -85,10 +155,24 @@ if "last_played_question_idx" not in st.session_state:
     st.session_state.last_played_question_idx = -1
 if "current_difficulty" not in st.session_state:
     st.session_state.current_difficulty = "Beginner"
+if "interview_format" not in st.session_state:
+    st.session_state.interview_format = "Standard Q&A"
+if "programming_language" not in st.session_state:
+    st.session_state.programming_language = "Python"
+if "recruiter_candidates" not in st.session_state:
+    st.session_state.recruiter_candidates = []
+if "candidate_name" not in st.session_state:
+    st.session_state.candidate_name = "Anonymous"
+if "interview_history" not in st.session_state:
+    st.session_state.interview_history = []
+if "coaching_result" not in st.session_state:
+    st.session_state.coaching_result = None
 if "difficulty_history" not in st.session_state:
     st.session_state.difficulty_history = []
 if "evaluations_history" not in st.session_state:
     st.session_state.evaluations_history = []
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "🏠 Home"
 
 # Sidebar settings
 with st.sidebar:
@@ -125,7 +209,13 @@ with st.sidebar:
     elif st.session_state.demo_mode:
         st.info("🧪 Running in Demo Mode (Mock AI)")
         
-    page_options = ["📊 Dashboard & Setup", "🎙️ Mock Interview", "📈 Performance Feedback"]
+    # Show user info
+    st.markdown(f"<div style='font-size:0.85rem;color:#9CA3AF;margin-bottom:4px;'>👤 Logged in as <strong style='color:#818CF8;'>{auth_name}</strong></div>", unsafe_allow_html=True)
+
+    _is_admin = _auth_config["credentials"]["usernames"].get(auth_user, {}).get("role") == "admin"
+    _base_pages = ["🏠 Home", "📊 Dashboard & Setup", "🎙️ Mock Interview", "📈 Performance Feedback", "🏢 Recruiter Dashboard", "📜 Interview History", "📈 Analytics", "🔬 Skill Intelligence"]
+    _admin_pages = ["🔐 Admin Panel"]
+    page_options = _base_pages + (_admin_pages if _is_admin else [])
     if st.session_state.current_page not in page_options:
         st.session_state.current_page = page_options[0]
         
@@ -150,6 +240,13 @@ with st.sidebar:
         st.session_state.uploaded_file_bytes = None
         st.session_state.custom_questions = []
         st.session_state.skills = []
+        st.session_state.projects = []
+        st.session_state.education = []
+        st.session_state.experience = []
+        st.session_state.certifications = []
+        st.session_state.soft_skills = []
+        st.session_state.technical_skills = []
+        st.session_state.candidate_profile = ""
         st.session_state.evaluation_results = None
         st.session_state.current_answer_text = ""
         st.session_state.last_audio_hash = 0
@@ -159,15 +256,110 @@ with st.sidebar:
         st.session_state.current_difficulty = "Beginner"
         st.session_state.difficulty_history = []
         st.session_state.evaluations_history = []
-        st.session_state.current_page = "📊 Dashboard & Setup"
+        st.session_state.current_page = "🏠 Home"
         st.rerun()
 
-# Title banner
-st.markdown("<div class='main-title'>AI Interview Preparation Platform</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Tailored resumes, voice feedback, and deep performance metrics powered by Gemini</div>", unsafe_allow_html=True)
+    st.markdown("---")
+    authenticator.logout("🚪 Logout", "sidebar")
+
+
+# ----------------- PAGE 0: HOME -----------------
+if nav_option == "🏠 Home":
+    st.markdown("""
+    <div class="hero-section">
+        <div class="main-title">AI Interview Preparation Platform</div>
+        <div class="subtitle">Tailored resumes, voice feedback, and deep performance metrics powered by Gemini</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col_cta1, col_cta2, col_cta3 = st.columns([1, 2, 1])
+    with col_cta2:
+        if st.button("Get Started Now 🚀", type="primary", use_container_width=True):
+            st.session_state.current_page = "📊 Dashboard & Setup"
+            st.rerun()
+
+    # Animated Statistics
+    st.markdown("""
+    <div class="metric-container" style="margin-top: 50px;">
+        <div class="metric-card" style="animation: fadeInUp 1.2s ease-out;">
+            <div class="metric-value">98%</div>
+            <div class="metric-label">Success Rate</div>
+        </div>
+        <div class="metric-card" style="animation: fadeInUp 1.4s ease-out;">
+            <div class="metric-value">10k+</div>
+            <div class="metric-label">Mock Interviews</div>
+        </div>
+        <div class="metric-card" style="animation: fadeInUp 1.6s ease-out;">
+            <div class="metric-value">50+</div>
+            <div class="metric-label">Roles Supported</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Why Choose Our Platform
+    st.markdown("<h3 style='text-align: center; margin-top: 60px;'>Why Choose Our Platform?</h3>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="feature-grid">
+        <div class="feature-card">
+            <span class="feature-icon">🎙️</span>
+            <h4>Real-time Voice AI</h4>
+            <p style="color: #9CA3AF; font-size: 0.9rem;">Practice with a conversational AI that listens and responds instantly using native browser speech recognition.</p>
+        </div>
+        <div class="feature-card">
+            <span class="feature-icon">📈</span>
+            <h4>Adaptive Difficulty</h4>
+            <p style="color: #9CA3AF; font-size: 0.9rem;">Questions dynamically scale from Beginner to Advanced based on your on-the-fly answers.</p>
+        </div>
+        <div class="feature-card">
+            <span class="feature-icon">🧠</span>
+            <h4>Deep Skill Analytics</h4>
+            <p style="color: #9CA3AF; font-size: 0.9rem;">Receive radar chart scorecards, gap analysis, and tailored 4-week learning roadmaps.</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Companies Supported
+    st.markdown("""
+    <div class="company-marquee-container">
+        <div class="company-marquee">
+            <span class="company-logo">Google</span>
+            <span class="company-logo">Meta</span>
+            <span class="company-logo">Amazon</span>
+            <span class="company-logo">Netflix</span>
+            <span class="company-logo">Microsoft</span>
+            <span class="company-logo">Apple</span>
+            <span class="company-logo">Tesla</span>
+            <!-- Repeat for seamless scroll -->
+            <span class="company-logo">Google</span>
+            <span class="company-logo">Meta</span>
+            <span class="company-logo">Amazon</span>
+            <span class="company-logo">Netflix</span>
+            <span class="company-logo">Microsoft</span>
+            <span class="company-logo">Apple</span>
+            <span class="company-logo">Tesla</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Testimonials
+    st.markdown("<h3 style='text-align: center; margin-top: 30px;'>Success Stories</h3>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="testimonial-grid">
+        <div class="testimonial-card">
+            "The adaptive difficulty perfectly simulated my final-round interview at Meta. The system design questions were incredibly realistic!"
+            <div class="testimonial-author">Sarah J. <br/><span>Senior Software Engineer</span></div>
+        </div>
+        <div class="testimonial-card">
+            "I used the skill gap analysis to identify my weakness in caching strategies. Two weeks later, I got the job."
+            <div class="testimonial-author">Michael T. <br/><span>Backend Developer</span></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ----------------- PAGE 1: DASHBOARD & SETUP -----------------
-if nav_option == "📊 Dashboard & Setup":
+elif nav_option == "📊 Dashboard & Setup":
+    st.markdown("<div class='main-title' style='font-size: 2.2rem !important;'>Dashboard & Setup</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>Configure your interview parameters and upload your resume</div>", unsafe_allow_html=True)
     if not st.session_state.api_key and not st.session_state.demo_mode:
         st.info(
             "👋 **To begin, please enter your Gemini API Key in the sidebar.**\n\n"
@@ -193,11 +385,30 @@ if nav_option == "📊 Dashboard & Setup":
                 key="role"
             )
             
+            st.text_input(
+                "Candidate Name (for Recruiter Dashboard)",
+                key="candidate_name",
+                placeholder="e.g. Alice Chen"
+            )
+            
             level = st.selectbox(
                 "Experience Level",
                 ["Junior", "Mid-level", "Senior", "Lead / Manager"],
                 key="level"
             )
+            
+            interview_format = st.selectbox(
+                "Interview Format",
+                ["Standard Q&A", "Technical Coding"],
+                key="interview_format"
+            )
+            
+            if st.session_state.interview_format == "Technical Coding":
+                programming_language = st.selectbox(
+                    "Programming Language",
+                    ["Python", "Java", "C++", "SQL"],
+                    key="programming_language"
+                )
             
             total_questions = st.slider(
                 "Number of Interview Questions",
@@ -225,6 +436,13 @@ if nav_option == "📊 Dashboard & Setup":
                     # Reset analysis output to force re-analysis on new upload
                     st.session_state.resume_summary = ""
                     st.session_state.resume_text = ""
+                    st.session_state.candidate_profile = ""
+                    st.session_state.projects = []
+                    st.session_state.education = []
+                    st.session_state.experience = []
+                    st.session_state.certifications = []
+                    st.session_state.soft_skills = []
+                    st.session_state.technical_skills = []
                     st.session_state.skills = []
                     st.session_state.custom_questions = []
 
@@ -245,8 +463,15 @@ if nav_option == "📊 Dashboard & Setup":
                                 )
                                 
                                 if analysis.get("success", False):
-                                    st.session_state.resume_summary = analysis.get("experience_summary", "")
+                                    st.session_state.candidate_profile = analysis.get("candidate_profile", "")
+                                    st.session_state.resume_summary = analysis.get("candidate_profile", "") # backward compatibility
                                     st.session_state.resume_text = resume_text
+                                    st.session_state.projects = analysis.get("projects", [])
+                                    st.session_state.education = analysis.get("education", [])
+                                    st.session_state.experience = analysis.get("experience", [])
+                                    st.session_state.certifications = analysis.get("certifications", [])
+                                    st.session_state.soft_skills = analysis.get("soft_skills", [])
+                                    st.session_state.technical_skills = analysis.get("technical_skills", [])
                                     st.session_state.skills = analysis.get("skills", [])
                                     st.session_state.custom_questions = analysis.get("suggested_questions", [])
                                     st.rerun()
@@ -257,33 +482,66 @@ if nav_option == "📊 Dashboard & Setup":
                                     # Reset states on failure
                                     st.session_state.resume_summary = ""
                                     st.session_state.resume_text = ""
+                                    st.session_state.candidate_profile = ""
+                                    st.session_state.projects = []
+                                    st.session_state.education = []
+                                    st.session_state.experience = []
+                                    st.session_state.certifications = []
+                                    st.session_state.soft_skills = []
+                                    st.session_state.technical_skills = []
                                     st.session_state.skills = []
                                     st.session_state.custom_questions = []
                             else:
                                 st.error("Failed to parse text from the PDF. Please make sure it's a readable text PDF.")
 
                     # Show previous successful analysis output
-                    if st.session_state.resume_summary:
-                        st.markdown("<div class='status-banner success'>✅ Resume successfully parsed & analyzed!</div>", unsafe_allow_html=True)
-                        st.markdown(f"**Profile Summary:** {st.session_state.resume_summary}")
+                    if st.session_state.candidate_profile or st.session_state.resume_summary:
+                        st.markdown("<div class='status-banner success'>✅ Resume successfully parsed into Candidate Profile!</div>", unsafe_allow_html=True)
+                        st.markdown(f"**Executive Summary:** {st.session_state.candidate_profile or st.session_state.resume_summary}")
                         
-                        # Show parsed skills
-                        if st.session_state.skills:
-                            st.markdown("**Identified Skills:**")
-                            skills_html = "".join([f"<span style='background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.skills])
-                            st.markdown(skills_html, unsafe_allow_html=True)
-                            
-                        # Show parsed suggested questions
-                        if st.session_state.custom_questions:
-                            st.markdown("**Initial Tailored Questions (from Resume):**")
-                            for q in st.session_state.custom_questions:
-                                st.markdown(f"- {q}")
+                        tab1, tab2, tab3 = st.tabs(["🎯 Skills & Tech", "💼 Experience & Projects", "🎓 Education & Certs"])
+                        
+                        with tab1:
+                            if st.session_state.technical_skills:
+                                st.markdown("**Technical Skills:**")
+                                st.markdown("".join([f"<span style='background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.technical_skills]), unsafe_allow_html=True)
+                            if st.session_state.soft_skills:
+                                st.markdown("**Soft Skills:**")
+                                st.markdown("".join([f"<span style='background: rgba(236,72,153,0.2); border: 1px solid rgba(236,72,153,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.soft_skills]), unsafe_allow_html=True)
+                            if not st.session_state.technical_skills and st.session_state.skills:
+                                st.markdown("**General Skills:**")
+                                st.markdown("".join([f"<span style='background: rgba(139,92,246,0.2); border: 1px solid rgba(139,92,246,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.skills]), unsafe_allow_html=True)
+                        with tab2:
+                            if st.session_state.experience:
+                                st.markdown("**Experience:**")
+                                for exp in st.session_state.experience:
+                                    st.markdown(f"- {exp}")
+                            if st.session_state.projects:
+                                st.markdown("**Key Projects:**")
+                                for proj in st.session_state.projects:
+                                    st.markdown(f"- {proj}")
+                        with tab3:
+                            if st.session_state.education:
+                                st.markdown("**Education:**")
+                                for ed in st.session_state.education:
+                                    st.markdown(f"- {ed}")
+                            if st.session_state.certifications:
+                                st.markdown("**Certifications:**")
+                                for cert in st.session_state.certifications:
+                                    st.markdown(f"- {cert}")
             elif st.session_state.demo_mode:
                 # In Demo Mode, automatically mock resume parsed status if no upload
-                if not st.session_state.resume_summary:
-                    st.session_state.resume_summary = "Junior/Mid Software Developer with experience in Python, SQL, OOP, and backend frameworks."
-                    st.session_state.resume_text = "Senior Python Software Engineer with SQL, OOP, and data structure experience."
-                    st.session_state.skills = ["Python", "SQL", "OOP", "Data Structures", "Django", "REST APIs"]
+                if not st.session_state.candidate_profile:
+                    st.session_state.candidate_profile = "A highly capable Junior Developer with proven experience in AI-integrated Python architectures."
+                    st.session_state.resume_summary = st.session_state.candidate_profile
+                    st.session_state.resume_text = "Python Developer with SQL, APIs, and Data structures."
+                    st.session_state.projects = ["Interactive Mock Interview System", "E-commerce Backend"]
+                    st.session_state.education = ["B.S. Computer Science"]
+                    st.session_state.experience = ["Intern at StartupX (6 Months)"]
+                    st.session_state.certifications = ["Google Data Analytics Certificate"]
+                    st.session_state.soft_skills = ["Teamwork", "Agile Methodologies", "Communication"]
+                    st.session_state.technical_skills = ["Python", "SQL", "OOP", "Data Structures", "Django", "REST APIs"]
+                    st.session_state.skills = st.session_state.technical_skills
                     st.session_state.custom_questions = [
                         "Tell me about a basic programming project that you've built.",
                         "Explain session state vs local variables in Streamlit.",
@@ -291,13 +549,38 @@ if nav_option == "📊 Dashboard & Setup":
                     ]
                 
                 st.markdown("<div class='status-banner success'>✅ Demo Resume Loaded Automatically!</div>", unsafe_allow_html=True)
-                st.markdown(f"**Demo Profile Summary:** {st.session_state.resume_summary}")
+                st.markdown(f"**Executive Summary:** {st.session_state.candidate_profile or st.session_state.resume_summary}")
                 
-                # Show parsed skills
-                if st.session_state.skills:
-                    st.markdown("**Identified Skills:**")
-                    skills_html = "".join([f"<span style='background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.skills])
-                    st.markdown(skills_html, unsafe_allow_html=True)
+                tab1, tab2, tab3 = st.tabs(["🎯 Skills & Tech", "💼 Experience & Projects", "🎓 Education & Certs"])
+                
+                with tab1:
+                    if st.session_state.technical_skills:
+                        st.markdown("**Technical Skills:**")
+                        st.markdown("".join([f"<span style='background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.technical_skills]), unsafe_allow_html=True)
+                    if st.session_state.soft_skills:
+                        st.markdown("**Soft Skills:**")
+                        st.markdown("".join([f"<span style='background: rgba(236,72,153,0.2); border: 1px solid rgba(236,72,153,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.soft_skills]), unsafe_allow_html=True)
+                    if not st.session_state.technical_skills and st.session_state.skills:
+                        st.markdown("**General Skills:**")
+                        st.markdown("".join([f"<span style='background: rgba(139,92,246,0.2); border: 1px solid rgba(139,92,246,0.4); border-radius: 20px; padding: 4px 12px; margin-right: 8px; margin-bottom: 8px; display: inline-block; font-size: 0.85rem;'>{skill}</span>" for skill in st.session_state.skills]), unsafe_allow_html=True)
+                with tab2:
+                    if st.session_state.experience:
+                        st.markdown("**Experience:**")
+                        for exp in st.session_state.experience:
+                            st.markdown(f"- {exp}")
+                    if st.session_state.projects:
+                        st.markdown("**Key Projects:**")
+                        for proj in st.session_state.projects:
+                            st.markdown(f"- {proj}")
+                with tab3:
+                    if st.session_state.education:
+                        st.markdown("**Education:**")
+                        for ed in st.session_state.education:
+                            st.markdown(f"- {ed}")
+                    if st.session_state.certifications:
+                        st.markdown("**Certifications:**")
+                        for cert in st.session_state.certifications:
+                            st.markdown(f"- {cert}")
             else:
                 # If demo mode is disabled and there is no uploaded file, reset mock resume summary
                 if st.session_state.uploaded_filename is None and st.session_state.resume_summary == "Junior/Mid Software Developer with experience in Python, SQL, OOP, and backend frameworks.":
@@ -341,6 +624,8 @@ if nav_option == "📊 Dashboard & Setup":
                         current_difficulty=st.session_state.current_difficulty,
                         resume_text=st.session_state.resume_text,
                         job_description=st.session_state.job_description,
+                        interview_format=st.session_state.interview_format,
+                        programming_language=st.session_state.programming_language,
                         demo_mode=st.session_state.demo_mode
                     )
                     
@@ -455,6 +740,49 @@ elif nav_option == "🎙️ Mock Interview":
                             <span style="font-size: 0.88rem; color: #D1D5DB;">{reason}</span>
                         </div>
                         """, unsafe_allow_html=True)
+
+                        # ── AI Coach Panel ──────────────────────────
+                        if st.session_state.coaching_result:
+                            coach = st.session_state.coaching_result
+                            st.markdown("---")
+                            st.markdown("### 🧠 AI Coach")
+
+                            # 1. Correct Answer
+                            st.markdown(f"""
+                            <div style='background:rgba(16,185,129,0.08);border-left:4px solid #10B981;border-radius:6px;padding:12px 16px;margin-bottom:10px;'>
+                                <div style='color:#34D399;font-weight:700;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;'>✅ Correct Answer Approach</div>
+                                <div style='color:#E5E7EB;font-size:0.93rem;'>{coach.get('correct_answer','')}</div>
+                            </div>""", unsafe_allow_html=True)
+
+                            # 2. Why
+                            st.markdown(f"""
+                            <div style='background:rgba(99,102,241,0.08);border-left:4px solid #6366F1;border-radius:6px;padding:12px 16px;margin-bottom:10px;'>
+                                <div style='color:#818CF8;font-weight:700;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;'>💡 Why This Works</div>
+                                <div style='color:#E5E7EB;font-size:0.93rem;'>{coach.get('why','')}</div>
+                            </div>""", unsafe_allow_html=True)
+
+                            # 3. Common Mistakes
+                            mistakes = coach.get("common_mistakes", [])
+                            mistakes_html = "".join(f"<li style='margin-bottom:4px;color:#E5E7EB;'>{m}</li>" for m in mistakes)
+                            st.markdown(f"""
+                            <div style='background:rgba(239,68,68,0.07);border-left:4px solid #EF4444;border-radius:6px;padding:12px 16px;margin-bottom:10px;'>
+                                <div style='color:#F87171;font-weight:700;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;'>⚠️ Common Mistakes</div>
+                                <ul style='margin:0;padding-left:18px;font-size:0.9rem;'>{mistakes_html}</ul>
+                            </div>""", unsafe_allow_html=True)
+
+                            # 4. How Recruiters Think
+                            st.markdown(f"""
+                            <div style='background:rgba(245,158,11,0.08);border-left:4px solid #F59E0B;border-radius:6px;padding:12px 16px;margin-bottom:10px;'>
+                                <div style='color:#FBBF24;font-weight:700;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;'>🎯 How Recruiters Think</div>
+                                <div style='color:#E5E7EB;font-size:0.93rem;'>{coach.get('recruiter_perspective','')}</div>
+                            </div>""", unsafe_allow_html=True)
+
+                            # 5. Sample Best Answer
+                            st.markdown(f"""
+                            <div style='background:rgba(236,72,153,0.08);border-left:4px solid #EC4899;border-radius:6px;padding:12px 16px;margin-bottom:10px;'>
+                                <div style='color:#F472B6;font-weight:700;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;'>⭐ Sample Best Answer</div>
+                                <div style='color:#E5E7EB;font-size:0.9rem;font-style:italic;line-height:1.6;'>{coach.get('sample_best_answer','')}</div>
+                            </div>""", unsafe_allow_html=True)
                     
                     st.info("Your response has been submitted successfully! Take a breath, and click below when you're ready to proceed.")
                     
@@ -470,6 +798,8 @@ elif nav_option == "🎙️ Mock Interview":
                                     current_difficulty=st.session_state.current_difficulty,
                                     resume_text=st.session_state.resume_text,
                                     job_description=st.session_state.job_description,
+                                    interview_format=st.session_state.interview_format,
+                                    programming_language=st.session_state.programming_language,
                                     demo_mode=st.session_state.demo_mode
                                 )
                                 # Acknowledge last answer in the AI text
@@ -492,6 +822,7 @@ elif nav_option == "🎙️ Mock Interview":
                                 st.session_state.waiting_for_next = False
                                 st.session_state.current_answer_text = ""
                                 st.session_state.recorder_key += 1
+                                st.session_state.coaching_result = None
                                 st.rerun()
                     with col_next2:
                         if st.button("End Early & Evaluate 📊", use_container_width=True):
@@ -521,44 +852,72 @@ elif nav_option == "🎙️ Mock Interview":
                                 st.warning("🔇 Speech synthesis unavailable.")
 
                 with st.container(border=True):
-                    st.markdown("### 🎙️ Record or Type Answer")
-                    
-                    # Sub-mode selection
-                    input_mode = st.radio("Input Mode", ["Voice Recording", "Text Input"], horizontal=True)
-                    
-                    if input_mode == "Voice Recording":
-                        st.markdown("<div class='recorder-wrapper'>", unsafe_allow_html=True)
-                        st.markdown("<div class='recorder-title'>Voice Recorder</div>", unsafe_allow_html=True)
+                    if st.session_state.interview_format == "Technical Coding":
+                        st.markdown(f"### 💻 Code Editor ({st.session_state.programming_language})")
                         
-                        # Native audio input widget
-                        audio_file = st.audio_input(
-                            "Record Response 🎙️",
-                            key=f"recorder_{st.session_state.recorder_key}"
+                        # Map programming languages to Ace Editor modes
+                        lang_map = {
+                            "Python": "python",
+                            "Java": "java",
+                            "C++": "c_cpp",
+                            "SQL": "sql"
+                        }
+                        mode = lang_map.get(st.session_state.programming_language, "python")
+                        
+                        current_typed_text = st_ace(
+                            value=st.session_state.current_answer_text,
+                            language=mode,
+                            theme="monokai",
+                            keybinding="vscode",
+                            font_size=14,
+                            tab_size=4,
+                            show_gutter=True,
+                            show_print_margin=False,
+                            wrap=True,
+                            auto_update=True,
+                            readonly=False,
+                            min_lines=15,
+                            key=f"ace_editor_{st.session_state.recorder_key}"
                         )
+                    else:
+                        st.markdown("### 🎙️ Record or Type Answer")
                         
-                        if audio_file is not None:
-                            audio_bytes = audio_file.read()
-                            audio_hash = hash(audio_bytes)
-                            if audio_hash != st.session_state.last_audio_hash:
-                                with st.spinner("Transcribing audio..."):
-                                    transcription = transcribe_audio(st.session_state.api_key, audio_bytes)
-                                    if not transcription.startswith("[Transcription failed"):
-                                        st.session_state.current_answer_text = transcription
-                                        st.session_state.last_audio_hash = audio_hash
-                                        st.rerun()
-                                    else:
-                                        st.error(transcription)
+                        # Sub-mode selection
+                        input_mode = st.radio("Input Mode", ["Voice Recording", "Text Input"], horizontal=True)
                         
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    
-                    # Display text area for review or manual typing with a dynamic key
-                    current_typed_text = st.text_area(
-                        "Your Answer:",
-                        value=st.session_state.current_answer_text,
-                        key=f"current_answer_widget_{st.session_state.recorder_key}",
-                        height=150,
-                        placeholder="Type your answer here or record using the voice recorder above..."
-                    )
+                        if input_mode == "Voice Recording":
+                            st.markdown("<div class='recorder-wrapper'>", unsafe_allow_html=True)
+                            st.markdown("<div class='recorder-title'>Voice Recorder</div>", unsafe_allow_html=True)
+                            
+                            # Native audio input widget
+                            audio_file = st.audio_input(
+                                "Record Response 🎙️",
+                                key=f"recorder_{st.session_state.recorder_key}"
+                            )
+                            
+                            if audio_file is not None:
+                                audio_bytes = audio_file.read()
+                                audio_hash = hash(audio_bytes)
+                                if audio_hash != st.session_state.last_audio_hash:
+                                    with st.spinner("Transcribing audio..."):
+                                        transcription = transcribe_audio(st.session_state.api_key, audio_bytes)
+                                        if not transcription.startswith("[Transcription failed"):
+                                            st.session_state.current_answer_text = transcription
+                                            st.session_state.last_audio_hash = audio_hash
+                                            st.rerun()
+                                        else:
+                                            st.error(transcription)
+                            
+                            st.markdown("</div>", unsafe_allow_html=True)
+                        
+                        # Display text area for review or manual typing with a dynamic key
+                        current_typed_text = st.text_area(
+                            "Your Answer:",
+                            value=st.session_state.current_answer_text,
+                            key=f"current_answer_widget_{st.session_state.recorder_key}",
+                            height=150,
+                            placeholder="Type your answer here or record using the voice recorder above..."
+                        )
                     
                     # Action Buttons
                     col_btn1, col_btn2 = st.columns([1, 1])
@@ -580,6 +939,7 @@ elif nav_option == "🎙️ Mock Interview":
                                         api_key=st.session_state.api_key,
                                         question=st.session_state.chat_history[-2]["text"],
                                         answer=current_typed_text,
+                                        interview_format=st.session_state.interview_format,
                                         demo_mode=st.session_state.demo_mode
                                     )
                                 st.session_state.evaluations_history.append(eval_result)
@@ -607,6 +967,18 @@ elif nav_option == "🎙️ Mock Interview":
                                     st.session_state.current_page = "📈 Performance Feedback"
                                     st.rerun()
                                 else:
+                                    # Generate coaching for wrong/partial answers
+                                    if rating in ["Incorrect", "Partially Correct"]:
+                                        with st.spinner("🧠 AI Coach is preparing your feedback..."):
+                                            st.session_state.coaching_result = generate_ai_coaching(
+                                                api_key=st.session_state.api_key,
+                                                question=st.session_state.chat_history[-2]["text"],
+                                                answer=current_typed_text,
+                                                rating=rating,
+                                                demo_mode=st.session_state.demo_mode
+                                            )
+                                    else:
+                                        st.session_state.coaching_result = None
                                     st.session_state.waiting_for_next = True
                                     st.rerun()
                     with col_btn2:
@@ -643,7 +1015,19 @@ elif nav_option == "📈 Performance Feedback":
                     role=st.session_state.role,
                     level=st.session_state.level,
                     chat_history=st.session_state.chat_history,
+                    resume_profile=st.session_state.candidate_profile or st.session_state.resume_summary,
                     demo_mode=st.session_state.demo_mode
+                )
+                # ── Auto-save to Recruiter Dashboard ──
+                add_candidate(
+                    eval_data=st.session_state.evaluation_results,
+                    candidate_name=st.session_state.get("candidate_name", "Anonymous") or "Anonymous",
+                    role=st.session_state.role
+                )
+                # ── Auto-save to Interview History ──
+                add_session(
+                    eval_data=st.session_state.evaluation_results,
+                    role=st.session_state.role
                 )
                 st.rerun()
         
@@ -651,41 +1035,71 @@ elif nav_option == "📈 Performance Feedback":
         raw_scores = eval_data.get("scores", {})
         
         # Coerce values to integers to prevent errors
+        # Coerce values to integers to prevent errors
         scores = {}
-        for key in ["technical", "communication", "confidence", "problem_solving", "overall_readiness"]:
+        for key in ["resume_score", "interview_score", "communication", "technical_knowledge", "problem_solving", "confidence", "hiring_probability"]:
             try:
                 # Provide a reasonable fallback if not generated
-                fallback_val = 80 if key == "overall_readiness" else 75
-                scores[key] = int(raw_scores.get(key, fallback_val))
+                scores[key] = int(raw_scores.get(key, 75))
             except Exception:
                 scores[key] = 75
+                
+        insights = eval_data.get("recruiter_insights", {})
+        recommended_role = insights.get("recommended_role", st.session_state.role)
+        expected_salary = insights.get("expected_salary", "N/A")
+        final_recommendation = insights.get("final_recommendation", "Consider")
         
-        # Display score cards
-        st.markdown("<div class='metric-container'>", unsafe_allow_html=True)
-        
+        # Recommendation Banner
+        banner_color = "rgba(16, 185, 129, 0.15)" # Green
+        border_color = "rgba(16, 185, 129, 0.4)"
+        text_color = "#10B981"
+        if "No" in final_recommendation or "Reject" in final_recommendation:
+            banner_color = "rgba(239, 68, 68, 0.15)" # Red
+            border_color = "rgba(239, 68, 68, 0.4)"
+            text_color = "#EF4444"
+        elif "Waitlist" in final_recommendation or "Consider" in final_recommendation:
+            banner_color = "rgba(245, 158, 11, 0.15)" # Yellow
+            border_color = "rgba(245, 158, 11, 0.4)"
+            text_color = "#F59E0B"
+            
         st.markdown(f"""
-        <div class='metric-card'>
-            <div class='metric-value'>{scores.get('technical')}%</div>
-            <div class='metric-label'>Technical Skills</div>
-        </div>
-        <div class='metric-card'>
-            <div class='metric-value'>{scores.get('communication')}%</div>
-            <div class='metric-label'>Communication</div>
-        </div>
-        <div class='metric-card'>
-            <div class='metric-value'>{scores.get('confidence')}%</div>
-            <div class='metric-label'>Confidence</div>
-        </div>
-        <div class='metric-card'>
-            <div class='metric-value'>{scores.get('problem_solving')}%</div>
-            <div class='metric-label'>Problem Solving</div>
-        </div>
-        <div class='metric-card' style='background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4);'>
-            <div class='metric-value' style='background: linear-gradient(135deg, #EC4899, #818CF8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>{scores.get('overall_readiness')}%</div>
-            <div class='metric-label' style='color: #A5B4FC; font-weight: bold;'>Overall Readiness</div>
+        <div style='background: {banner_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 20px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;'>
+            <div>
+                <h3 style='margin: 0; color: #F3F4F6;'>Recruiter Recommendation: <span style='color: {text_color}; font-weight: 800;'>{final_recommendation}</span></h3>
+                <p style='margin: 5px 0 0 0; color: #9CA3AF; font-size: 1.1rem;'>Target: {recommended_role} | Expected Comp: {expected_salary}</p>
+            </div>
+            <div style='text-align: right;'>
+                <div style='font-size: 0.9rem; color: #9CA3AF;'>Hiring Probability</div>
+                <div style='font-size: 2.5rem; font-weight: 800; color: {text_color}; line-height: 1;'>{scores.get('hiring_probability')}%</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Display score cards
+        st.markdown(f"""
+        <div class='metric-container'>
+            <div class='metric-card'>
+                <div class='metric-value'>{scores.get('resume_score')}%</div>
+                <div class='metric-label'>Resume Score</div>
+            </div>
+            <div class='metric-card'>
+                <div class='metric-value'>{scores.get('technical_knowledge')}%</div>
+                <div class='metric-label'>Technical Skills</div>
+            </div>
+            <div class='metric-card'>
+                <div class='metric-value'>{scores.get('communication')}%</div>
+                <div class='metric-label'>Communication</div>
+            </div>
+            <div class='metric-card'>
+                <div class='metric-value'>{scores.get('problem_solving')}%</div>
+                <div class='metric-label'>Problem Solving</div>
+            </div>
+            <div class='metric-card' style='background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4);'>
+                <div class='metric-value' style='background: linear-gradient(135deg, #EC4899, #818CF8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>{scores.get('interview_score')}%</div>
+                <div class='metric-label' style='color: #A5B4FC; font-weight: bold;'>Interview Score</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         col1, col2 = st.columns([1, 1], gap="large")
         
@@ -694,13 +1108,13 @@ elif nav_option == "📈 Performance Feedback":
                 st.markdown("### 📊 Performance Analytics")
                 
                 # Interactive Plotly Radar / Polar Chart
-                categories = ['Technical Skills', 'Communication', 'Confidence', 'Problem Solving', 'Overall Readiness']
+                categories = ['Technical Skills', 'Communication', 'Confidence', 'Problem Solving', 'Interview Score']
                 score_values = [
-                    scores.get('technical'),
+                    scores.get('technical_knowledge'),
                     scores.get('communication'),
                     scores.get('confidence'),
                     scores.get('problem_solving'),
-                    scores.get('overall_readiness')
+                    scores.get('interview_score')
                 ]
                 
                 fig = go.Figure()
@@ -822,3 +1236,635 @@ elif nav_option == "📈 Performance Feedback":
                     {item.get('model_answer', 'N/A')}
                 </div>
                 """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# PAGE 4 : RECRUITER DASHBOARD
+# ─────────────────────────────────────────────────────────────
+elif nav_option == "🏢 Recruiter Dashboard":
+    st.markdown("<div class='main-title' style='font-size:2.2rem!important;'>🏢 Recruiter Dashboard</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>Rank, compare and download reports for all interviewed candidates</div>", unsafe_allow_html=True)
+
+    candidates = get_candidates(demo_mode=st.session_state.demo_mode)
+
+    # ── Top KPI bar ──────────────────────────────────────────
+    total   = len(candidates)
+    hires   = sum(1 for c in candidates if "Hire" in c["final_recommendation"] and "No" not in c["final_recommendation"])
+    avg_prob = int(sum(c["hiring_probability"] for c in candidates) / total) if total else 0
+
+    k1, k2, k3, k4 = st.columns(4, gap="medium")
+    kpi_data = [
+        (k1, str(total), "Total Candidates"),
+        (k2, str(hires), "Recommended Hires"),
+        (k3, f"{avg_prob}%", "Avg Hire Probability"),
+        (k4, candidates[0]["name"] if candidates else "—", "Top Candidate"),
+    ]
+    for col, val, label in kpi_data:
+        with col:
+            st.markdown(f"""
+            <div class='recruiter-stat'>
+                <div class='stat-value'>{val}</div>
+                <div class='stat-label'>{label}</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    if not candidates:
+        st.info("No candidates yet. Complete a mock interview to see results here, or enable **Demo Mode** to see sample data.")
+    else:
+        # ── Ranked Candidate Table ────────────────────────────
+        st.markdown("### 📋 Candidate Rankings")
+
+        for rank, c in enumerate(candidates, 1):
+            rec = c["final_recommendation"]
+            if "No" in rec or "Reject" in rec:
+                pill_cls, pill_icon = "pill-reject", "✘"
+            elif "Waitlist" in rec or "Consider" in rec:
+                pill_cls, pill_icon = "pill-wait", "⏳"
+            else:
+                pill_cls, pill_icon = "pill-hire", "✔"
+
+            if rank == 1:   badge = f"<span style='font-size:1.4rem'>🥇</span>"
+            elif rank == 2: badge = f"<span style='font-size:1.4rem'>🥈</span>"
+            elif rank == 3: badge = f"<span style='font-size:1.4rem'>🥉</span>"
+            else:           badge = f"<span style='color:#9CA3AF;font-weight:700;'>#{rank}</span>"
+
+            top_chips  = "".join(f"<span class='skill-chip chip-green'>{s}</span>" for s in c.get("top_skills", [])[:4])
+            weak_chips = "".join(f"<span class='skill-chip chip-red'>{w}</span>"   for w in c.get("weak_skills", [])[:3])
+
+            with st.expander(f"  {c['name']}  ·  {c['role']}  ·  Hire Probability: {c['hiring_probability']}%", expanded=(rank == 1)):
+                col_a, col_b, col_c = st.columns([0.5, 3, 1.5], gap="medium")
+                with col_a:
+                    st.markdown(badge, unsafe_allow_html=True)
+                with col_b:
+                    st.markdown(f"""
+                    <table style='width:100%;border-collapse:collapse;color:#E5E7EB;font-size:0.9rem;'>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Resume Score</td>
+                        <td style='padding:4px 8px;font-weight:700;color:#818CF8;'>{c['resume_score']}%</td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Interview Score</td>
+                        <td style='padding:4px 8px;font-weight:700;color:#C084FC;'>{c['interview_score']}%</td>
+                      </tr>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Technical</td>
+                        <td style='padding:4px 8px;font-weight:700;color:#60A5FA;'>{c['technical_knowledge']}%</td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Communication</td>
+                        <td style='padding:4px 8px;font-weight:700;color:#34D399;'>{c['communication']}%</td>
+                      </tr>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Problem Solving</td>
+                        <td style='padding:4px 8px;font-weight:700;color:#FBBF24;'>{c['problem_solving']}%</td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Recommended Role</td>
+                        <td style='padding:4px 8px;font-weight:600;'>{c['recommended_role']}</td>
+                      </tr>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Expected Salary</td>
+                        <td style='padding:4px 8px;font-weight:600;'>{c['expected_salary']}</td>
+                        <td></td><td></td>
+                      </tr>
+                    </table>
+                    """, unsafe_allow_html=True)
+                with col_c:
+                    st.markdown(f"<span class='hire-pill {pill_cls}'>{pill_icon} {rec}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top:12px;'>{top_chips}</div>",  unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top:6px;'>{weak_chips}</div>",  unsafe_allow_html=True)
+
+        # ── Skill Comparison Chart ────────────────────────────
+        st.markdown("---")
+        st.markdown("### 📊 Skill Comparison Chart")
+
+        names  = [c["name"] for c in candidates]
+        fig = go.Figure()
+        metrics = {
+            "Technical":        ("technical_knowledge", "#60A5FA"),
+            "Communication":    ("communication",       "#34D399"),
+            "Problem Solving":  ("problem_solving",     "#FBBF24"),
+            "Resume Score":     ("resume_score",        "#818CF8"),
+        }
+        for label, (key, color) in metrics.items():
+            fig.add_trace(go.Bar(
+                name=label,
+                x=names,
+                y=[c[key] for c in candidates],
+                marker_color=color,
+                opacity=0.85,
+            ))
+
+        fig.update_layout(
+            barmode="group",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#E5E7EB", family="Inter"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.05)", range=[0, 105]),
+            margin=dict(l=10, r=10, t=30, b=10),
+            height=380,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # ── Download CSV ──────────────────────────────────────
+        st.markdown("---")
+        col_dl, col_clr = st.columns([2, 1], gap="medium")
+        with col_dl:
+            csv_data = to_csv(candidates)
+            st.download_button(
+                label="⬇️ Download Full Candidate Report (CSV)",
+                data=csv_data,
+                file_name="recruiter_report.csv",
+                mime="text/csv",
+                use_container_width=True,
+                type="primary"
+            )
+        with col_clr:
+            if st.button("🗑️ Clear All Candidates", use_container_width=True):
+                clear_store()
+                st.success("Candidate registry cleared.")
+                st.rerun()
+
+# ─────────────────────────────────────────────────────────────
+# PAGE 5 : INTERVIEW HISTORY
+# ─────────────────────────────────────────────────────────────
+elif nav_option == "📜 Interview History":
+    st.markdown("<div class='main-title' style='font-size:2.2rem!important;'>📜 Interview History</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>Track your progress and improvement across every practice session</div>", unsafe_allow_html=True)
+
+    history = get_history(demo_mode=st.session_state.demo_mode)
+
+    if not history:
+        st.info("No interview history yet. Complete a mock interview to start tracking your progress, or enable **Demo Mode** to see a sample progression arc.")
+    else:
+        n = len(history)
+
+        # ── Summary KPI bar ──────────────────────────────────
+        first, last = history[0], history[-1]
+        comm_delta  = last["communication"]      - first["communication"]
+        tech_delta  = last["technical_knowledge"] - first["technical_knowledge"]
+        prob_delta  = last["problem_solving"]    - first["problem_solving"]
+        conf_delta  = last["confidence"]         - first["confidence"]
+
+        def _arrow(d):
+            return ("🟢 +" if d >= 0 else "🔴 ") + str(d) + "%"
+
+        k1, k2, k3, k4, k5 = st.columns(5, gap="small")
+        for col, label, val in [
+            (k1, "Sessions",        str(n)),
+            (k2, "Communication",   _arrow(comm_delta)),
+            (k3, "Technical",       _arrow(tech_delta)),
+            (k4, "Problem Solving", _arrow(prob_delta)),
+            (k5, "Confidence",      _arrow(conf_delta)),
+        ]:
+            with col:
+                st.markdown(f"""
+                <div class='recruiter-stat'>
+                    <div class='stat-value' style='font-size:1.6rem;'>{val}</div>
+                    <div class='stat-label'>{label}</div>
+                </div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Progress Line Chart ──────────────────────────────
+        st.markdown("### 📈 Performance Progress Over Time")
+
+        labels = [s["label"] for s in history]
+        fig_line = go.Figure()
+
+        for key, name, color in TRACKED_METRICS:
+            vals = [s[key] for s in history]
+            fig_line.add_trace(go.Scatter(
+                x=labels,
+                y=vals,
+                mode="lines+markers+text",
+                name=name,
+                line=dict(color=color, width=3),
+                marker=dict(size=10, color=color,
+                            line=dict(color="#0F172A", width=2)),
+                text=[f"{v}%" for v in vals],
+                textposition="top center",
+                textfont=dict(color=color, size=11),
+            ))
+
+        fig_line.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#E5E7EB", family="Inter"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.06)", showline=False),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.06)", range=[0, 110]),
+            margin=dict(l=10, r=10, t=40, b=10),
+            height=420,
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig_line, use_container_width=True)
+
+        st.markdown("---")
+
+        # ── Per-metric Improvement Arrows ───────────────────
+        st.markdown("### 🎯 Score Progression by Skill")
+        
+        for key, name, color in TRACKED_METRICS:
+            vals = [s[key] for s in history]
+            col_name, *score_cols = st.columns([1.2] + [1]*len(vals), gap="small")
+            with col_name:
+                st.markdown(f"<div style='color:{color};font-weight:700;padding-top:14px;font-size:0.95rem;'>{name}</div>", unsafe_allow_html=True)
+            for i, (col, val) in enumerate(zip(score_cols, vals)):
+                with col:
+                    if i == 0:
+                        arrow_html = ""
+                    else:
+                        delta = val - vals[i-1]
+                        arrow_color = "#10B981" if delta >= 0 else "#EF4444"
+                        arrow_sym   = "▲" if delta >= 0 else "▼"
+                        arrow_html  = f"<div style='color:{arrow_color};font-size:0.8rem;text-align:center;'>{arrow_sym} {abs(delta)}%</div>"
+                    st.markdown(f"""
+                    <div style='background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.07);
+                         border-radius:10px;padding:10px 8px;text-align:center;'>
+                        {arrow_html}
+                        <div style='font-size:1.5rem;font-weight:800;color:{color};'>{val}%</div>
+                        <div style='font-size:0.72rem;color:#6B7280;'>{history[i]["label"]}</div>
+                    </div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Session Cards Timeline ───────────────────────────
+        st.markdown("### 🗂️ Session-by-Session Breakdown")
+
+        for s in reversed(history):
+            rec = s["final_recommendation"]
+            if "No" in rec or "Reject" in rec:
+                badge_color = "#EF4444"
+            elif "Waitlist" in rec or "Consider" in rec:
+                badge_color = "#F59E0B"
+            else:
+                badge_color = "#10B981"
+
+            top_chips  = "".join(f"<span class='skill-chip chip-green'>{sk}</span>" for sk in s.get("top_skills",  [])[:4])
+            weak_chips = "".join(f"<span class='skill-chip chip-red'>{sk}</span>"   for sk in s.get("weak_skills", [])[:3])
+
+            with st.expander(f"📅 {s['label']}  ·  {s['date']}  ·  Overall: {s['interview_score']}%", expanded=(s["session"] == history[-1]["session"])):
+                c1, c2 = st.columns([2, 1], gap="large")
+                with c1:
+                    st.markdown(f"**Role:** {s['role']}")
+                    if s.get("summary"):
+                        st.markdown(f"> {s['summary']}")
+                    st.markdown(f"""
+                    <table style='width:100%;border-collapse:collapse;color:#E5E7EB;font-size:0.88rem;margin-top:8px;'>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Communication</td>
+                        <td style='font-weight:700;color:#34D399;'>{s['communication']}%</td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Technical</td>
+                        <td style='font-weight:700;color:#60A5FA;'>{s['technical_knowledge']}%</td>
+                      </tr>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Problem Solving</td>
+                        <td style='font-weight:700;color:#FBBF24;'>{s['problem_solving']}%</td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Confidence</td>
+                        <td style='font-weight:700;color:#C084FC;'>{s['confidence']}%</td>
+                      </tr>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Resume Score</td>
+                        <td style='font-weight:700;color:#818CF8;'>{s['resume_score']}%</td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Hire Probability</td>
+                        <td style='font-weight:700;color:#EC4899;'>{s['hiring_probability']}%</td>
+                      </tr>
+                    </table>""", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"<span style='background:{badge_color}20;color:{badge_color};border:1px solid {badge_color}60;padding:4px 14px;border-radius:20px;font-weight:700;font-size:0.82rem;'>{rec}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top:12px;'><strong style='color:#9CA3AF;font-size:0.78rem;'>TOP SKILLS</strong><br/>{top_chips}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top:8px;'><strong style='color:#9CA3AF;font-size:0.78rem;'>NEEDS WORK</strong><br/>{weak_chips}</div>", unsafe_allow_html=True)
+
+        # ── Clear button ─────────────────────────────────────
+        st.markdown("---")
+        if st.button("🗑️ Clear Interview History", use_container_width=False):
+            clear_history()
+            st.success("History cleared.")
+            st.rerun()
+
+# ─────────────────────────────────────────────────────────────
+# PAGE 6 : ANALYTICS  (Phase 9)
+# ─────────────────────────────────────────────────────────────
+elif nav_option == "📈 Analytics":
+    st.markdown("<div class='main-title' style='font-size:2.2rem!important;'>📈 Performance Analytics</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>Deep-dive charts across every interview metric</div>", unsafe_allow_html=True)
+
+    history = get_history(demo_mode=st.session_state.demo_mode)
+
+    if not history:
+        st.info("No data yet. Complete a mock interview or enable **Demo Mode** for sample analytics.")
+    else:
+        labels = [s["label"] for s in history]
+
+        # ── KPI row ───────────────────────────────────────────
+        n = len(history)
+        last = history[-1]
+        k1,k2,k3,k4,k5,k6 = st.columns(6, gap="small")
+        for col, label, val, color in [
+            (k1, "Sessions",        str(n),                        "#818CF8"),
+            (k2, "Avg Interview",   f"{int(sum(s['interview_score'] for s in history)/n)}%", "#34D399"),
+            (k3, "Avg Resume",      f"{int(sum(s['resume_score'] for s in history)/n)}%",    "#60A5FA"),
+            (k4, "Avg Confidence",  f"{int(sum(s['confidence'] for s in history)/n)}%",      "#FBBF24"),
+            (k5, "Avg Technical",   f"{int(sum(s['technical_knowledge'] for s in history)/n)}%", "#EC4899"),
+            (k6, "Hire Prob",       f"{last['hiring_probability']}%", "#10B981"),
+        ]:
+            with col:
+                st.markdown(f"""<div class='recruiter-stat'>
+                    <div class='stat-value' style='font-size:1.5rem;color:{color};-webkit-text-fill-color:{color};'>{val}</div>
+                    <div class='stat-label'>{label}</div></div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Multi-metric area chart ───────────────────────────
+        st.markdown("### 📊 All Metrics Over Time")
+        fig_area = go.Figure()
+        for key, name, color in TRACKED_METRICS:
+            vals = [s[key] for s in history]
+            fig_area.add_trace(go.Scatter(
+                x=labels, y=vals, name=name, mode="lines+markers",
+                line=dict(color=color, width=2.5),
+                fill="tozeroy", fillcolor=color.replace(")", ",0.06)").replace("rgb", "rgba") if "rgb" in color else color+"18",
+                marker=dict(size=8, color=color)
+            ))
+        fig_area.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#E5E7EB", family="Inter"),
+            legend=dict(orientation="h", y=1.05, x=1, xanchor="right"),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.06)", range=[0,110]),
+            height=380, margin=dict(l=10,r=10,t=30,b=10), hovermode="x unified"
+        )
+        st.plotly_chart(fig_area, use_container_width=True)
+
+        c1, c2 = st.columns(2, gap="medium")
+
+        # ── Radar chart ───────────────────────────────────────
+        with c1:
+            st.markdown("### 🕸️ Latest Session Radar")
+            cats_radar = ["Communication","Technical","Problem Solving","Confidence","Resume Score"]
+            vals_radar = [
+                last["communication"], last["technical_knowledge"],
+                last["problem_solving"], last["confidence"], last["resume_score"]
+            ]
+            vals_radar += [vals_radar[0]]
+            cats_radar += [cats_radar[0]]
+            fig_radar = go.Figure(go.Scatterpolar(
+                r=vals_radar, theta=cats_radar,
+                fill="toself", fillcolor="rgba(99,102,241,0.15)",
+                line=dict(color="#818CF8", width=2.5),
+                marker=dict(size=7, color="#818CF8")
+            ))
+            fig_radar.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                polar=dict(bgcolor="rgba(0,0,0,0)",
+                           radialaxis=dict(visible=True, range=[0,100], color="#6B7280"),
+                           angularaxis=dict(color="#9CA3AF")),
+                font=dict(color="#E5E7EB"), height=360, margin=dict(l=40,r=40,t=30,b=10)
+            )
+            st.plotly_chart(fig_radar, use_container_width=True)
+
+        # ── Hiring probability trend ──────────────────────────
+        with c2:
+            st.markdown("### 🎯 Hiring Probability Trend")
+            hp_vals = [s["hiring_probability"] for s in history]
+            colors_hp = ["#10B981" if v >= 80 else "#F59E0B" if v >= 60 else "#EF4444" for v in hp_vals]
+            fig_hp = go.Figure(go.Bar(
+                x=labels, y=hp_vals, marker_color=colors_hp, opacity=0.85,
+                text=[f"{v}%" for v in hp_vals], textposition="outside",
+                textfont=dict(color="#E5E7EB")
+            ))
+            fig_hp.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#E5E7EB", family="Inter"),
+                xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.06)", range=[0,115]),
+                height=360, margin=dict(l=10,r=10,t=30,b=10)
+            )
+            st.plotly_chart(fig_hp, use_container_width=True)
+
+        # ── Improvement trend (delta bar) ─────────────────────
+        if len(history) >= 2:
+            st.markdown("---")
+            st.markdown("### 📈 Improvement Trend (First → Last Session)")
+            first = history[0]
+            metric_keys   = ["communication","technical_knowledge","problem_solving","confidence","interview_score"]
+            metric_labels = ["Communication","Technical","Problem Solving","Confidence","Overall Score"]
+            deltas = [last[k] - first[k] for k in metric_keys]
+            delta_colors = ["#10B981" if d >= 0 else "#EF4444" for d in deltas]
+            fig_delta = go.Figure(go.Bar(
+                x=metric_labels, y=deltas, marker_color=delta_colors, opacity=0.85,
+                text=[f"{'+'if d>=0 else ''}{d}%" for d in deltas],
+                textposition="outside", textfont=dict(color="#E5E7EB")
+            ))
+            fig_delta.add_hline(y=0, line_color="rgba(255,255,255,0.2)", line_dash="dash")
+            fig_delta.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#E5E7EB", family="Inter"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+                height=320, margin=dict(l=10,r=10,t=30,b=10)
+            )
+            st.plotly_chart(fig_delta, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────
+# PAGE 7 : SKILL INTELLIGENCE  (Phase 13)
+# ─────────────────────────────────────────────────────────────
+elif nav_option == "🔬 Skill Intelligence":
+    st.markdown("<div class='main-title' style='font-size:2.2rem!important;'>🔬 Skill Intelligence</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>AI-powered skill graph · gap analysis · adaptive difficulty · learning roadmap</div>", unsafe_allow_html=True)
+
+    # Gather skills from session
+    all_skills = (
+        st.session_state.get("skills", []) +
+        st.session_state.get("technical_skills", []) +
+        st.session_state.get("soft_skills", [])
+    )
+    weak_skills = []
+    if st.session_state.get("evaluation_results"):
+        gap = st.session_state.evaluation_results.get("skill_gap_analysis", {})
+        weak_skills = gap.get("weaknesses", [])
+
+    if not all_skills and not st.session_state.demo_mode:
+        st.info("Upload your resume on the **Dashboard & Setup** page first, or enable **Demo Mode** to see a sample skill graph.")
+    else:
+        # Demo skills
+        if not all_skills:
+            all_skills = ["Python","Django","REST APIs","SQL","PostgreSQL","Docker","AWS",
+                          "System Design","Machine Learning","Communication","Leadership",
+                          "Data Structures","Algorithms","React","Node.js"]
+            weak_skills = ["System Design","Leadership","Distributed Systems"]
+
+        # ── Skill Network Graph ────────────────────────────────
+        st.markdown("### 🕸️ Skill Network Graph")
+        st.caption("🟢 Green = Strong skill  |  🔴 Red = Weak/Gap skill  |  Large node = Category")
+        fig_network = build_skill_network_chart(all_skills, weak_skills)
+        st.plotly_chart(fig_network, use_container_width=True)
+
+        st.markdown("---")
+
+        # ── Skill categories breakdown ─────────────────────────
+        st.markdown("### 📂 Skills by Category")
+        categorized = categorize_skills(all_skills)
+        cat_cols = st.columns(min(len(categorized), 4), gap="medium")
+        for i, (cat, cat_skills) in enumerate(categorized.items()):
+            with cat_cols[i % 4]:
+                chips = "".join(f"<span class='skill-chip chip-green'>{s}</span>" for s in cat_skills)
+                st.markdown(f"""<div style='background:rgba(30,41,59,0.5);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px;min-height:100px;'>
+                    <div style='font-size:0.78rem;color:#9CA3AF;font-weight:700;text-transform:uppercase;margin-bottom:8px;'>{cat}</div>
+                    {chips}</div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Skill Gap vs Job Description ────────────────────────
+        st.markdown("### 🎯 Skill Gap Predictor")
+        jd = st.session_state.get("job_description", "")
+        if not jd:
+            jd = "Looking for a Software Engineer with Python, Django, AWS, Docker, System Design, SQL, and communication skills."
+        gap_result = predict_skill_gap(all_skills, jd)
+
+        g1, g2, g3 = st.columns(3, gap="medium")
+        with g1:
+            st.markdown(f"<div class='recruiter-stat'><div class='stat-value' style='color:#10B981;-webkit-text-fill-color:#10B981;'>{gap_result['coverage']}%</div><div class='stat-label'>JD Coverage</div></div>", unsafe_allow_html=True)
+        with g2:
+            matched_chips = "".join(f"<span class='skill-chip chip-green'>{s}</span>" for s in gap_result["matched"])
+            st.markdown(f"<div style='background:rgba(30,41,59,0.5);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px;'><div style='color:#34D399;font-weight:700;font-size:0.78rem;margin-bottom:6px;'>✔ MATCHED SKILLS</div>{matched_chips}</div>", unsafe_allow_html=True)
+        with g3:
+            missing_chips = "".join(f"<span class='skill-chip chip-red'>{s}</span>" for s in gap_result["missing"])
+            missing_fallback = missing_chips if missing_chips else "<span style='color:#6B7280;'>None — great coverage!</span>"
+            st.markdown(f"<div style='background:rgba(30,41,59,0.5);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px;'><div style='color:#F87171;font-weight:700;font-size:0.78rem;margin-bottom:6px;'>✘ MISSING SKILLS</div>{missing_fallback}</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Adaptive Difficulty Prediction ─────────────────────
+        st.markdown("### ⚡ Adaptive Difficulty Prediction")
+        skill_scores = {}
+        if st.session_state.get("evaluation_results"):
+            raw = st.session_state.evaluation_results.get("scores", {})
+            skill_scores = {k: int(v) for k, v in raw.items() if isinstance(v, (int, float, str)) and str(v).isdigit()}
+        if not skill_scores:
+            skill_scores = {"technical_knowledge": 72, "communication": 68, "problem_solving": 65, "confidence": 60}
+        predicted = predict_difficulty(skill_scores)
+        diff_color = {"Beginner": "#34D399", "Intermediate": "#F59E0B", "Advanced": "#EF4444"}.get(predicted, "#818CF8")
+        st.markdown(f"<div class='recruiter-stat' style='max-width:300px;'><div class='stat-value' style='color:{diff_color};-webkit-text-fill-color:{diff_color};'>{predicted}</div><div class='stat-label'>Recommended Difficulty Level</div></div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Personalised Learning Roadmap (Phase 8) ────────────
+        st.markdown("### 📚 Personalized Learning Roadmap")
+        st.caption("Resources curated for your weakest skills")
+        if not weak_skills:
+            weak_skills = ["System Design", "Communication", "Algorithms"]
+
+        from datetime import date, timedelta
+        next_interview = (date.today() + timedelta(days=14)).strftime("%d %b %Y")
+
+        for i, skill in enumerate(weak_skills[:5]):
+            res = get_resources(skill)
+            with st.expander(f"📌 {skill}", expanded=(i == 0)):
+                r1, r2, r3 = st.columns(3, gap="medium")
+                with r1:
+                    st.markdown(f"""<div style='background:rgba(236,72,153,0.08);border:1px solid rgba(236,72,153,0.2);border-radius:10px;padding:14px;'>
+                        <div style='color:#F472B6;font-weight:700;font-size:0.8rem;margin-bottom:6px;'>▶ YouTube Playlist</div>
+                        <a href='{res["youtube"]}' target='_blank' style='color:#E5E7EB;font-size:0.88rem;text-decoration:none;'>🎬 Watch on YouTube ↗</a></div>""", unsafe_allow_html=True)
+                with r2:
+                    st.markdown(f"""<div style='background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:14px;'>
+                        <div style='color:#818CF8;font-weight:700;font-size:0.8rem;margin-bottom:6px;'>📖 Recommended Book</div>
+                        <span style='color:#E5E7EB;font-size:0.85rem;'>{res["book"]}</span></div>""", unsafe_allow_html=True)
+                with r3:
+                    st.markdown(f"""<div style='background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px;'>
+                        <div style='color:#34D399;font-weight:700;font-size:0.8rem;margin-bottom:6px;'>💻 Practice Problems</div>
+                        <a href='{res["practice"]}' target='_blank' style='color:#E5E7EB;font-size:0.88rem;text-decoration:none;'>🧩 Practice Now ↗</a></div>""", unsafe_allow_html=True)
+
+        st.markdown(f"""<div style='background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:16px 20px;margin-top:20px;display:flex;align-items:center;gap:16px;'>
+            <div style='font-size:2rem;'>📅</div>
+            <div><div style='color:#FBBF24;font-weight:700;font-size:0.9rem;'>Suggested Next Interview Date</div>
+            <div style='color:#E5E7EB;font-size:1.1rem;font-weight:600;margin-top:4px;'>{next_interview}</div>
+            <div style='color:#9CA3AF;font-size:0.8rem;'>Based on your current skill gaps — 2 weeks of focused study recommended</div></div>
+        </div>""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# PAGE 8 : ADMIN PANEL  (Phase 12)
+# ─────────────────────────────────────────────────────────────
+elif nav_option == "🔐 Admin Panel":
+    if not _is_admin:
+        st.error("🔒 Access denied. Admin privileges required.")
+        st.stop()
+
+    st.markdown("<div class='main-title' style='font-size:2.2rem!important;'>🔐 Admin Panel</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>System administration · users · questions · reports</div>", unsafe_allow_html=True)
+
+    tab_users, tab_interviews, tab_questions, tab_analytics, tab_export = st.tabs(
+        ["👥 Users", "📋 Interviews", "❓ Questions", "📊 Analytics", "📥 Export"])
+
+    # ── Users tab ─────────────────────────────────────────────
+    with tab_users:
+        st.markdown("### 👥 Registered Users")
+        users = load_users()
+        if not users:
+            st.info("No users registered yet.")
+        else:
+            for uname, udata in users.items():
+                with st.expander(f"👤 {udata.get('name', uname)} (@{uname}) — {udata.get('role','candidate')}"):
+                    st.write(f"**Email:** {udata.get('email', 'N/A')}  |  **Registered:** {udata.get('registered','N/A')}  |  **Interviews:** {udata.get('interviews',0)}")
+                    if st.button(f"🗑️ Delete {uname}", key=f"del_user_{uname}"):
+                        delete_user(uname)
+                        st.success(f"User @{uname} deleted.")
+                        st.rerun()
+
+    # ── Interviews tab ─────────────────────────────────────────
+    with tab_interviews:
+        st.markdown("### 📋 All Interview Sessions")
+        all_history = ds_load_history()
+        if not all_history:
+            st.info("No saved interview sessions yet.")
+        else:
+            for i, session in enumerate(reversed(all_history)):
+                st.markdown(f"**Session {len(all_history)-i}** · {session.get('date','N/A')} · {session.get('role','N/A')} · Score: **{session.get('interview_score','?')}%**")
+
+    # ── Questions Bank tab ─────────────────────────────────────
+    with tab_questions:
+        st.markdown("### ❓ Question Bank")
+        with st.form("add_q_form"):
+            new_q   = st.text_area("New Question", placeholder="Enter interview question...")
+            q_cat   = st.selectbox("Category", ["Technical","Behavioral","System Design","Coding","HR"])
+            q_diff  = st.selectbox("Difficulty", ["Beginner","Intermediate","Advanced"])
+            if st.form_submit_button("➕ Add Question", type="primary"):
+                if new_q.strip():
+                    add_question(new_q.strip(), q_cat, q_diff)
+                    st.success("Question added!")
+                    st.rerun()
+        questions = load_questions()
+        if questions:
+            st.markdown(f"**{len(questions)} questions in bank**")
+            for i, q in enumerate(questions):
+                with st.expander(f"Q{i+1}: {q['question'][:80]}..."):
+                    st.write(f"**Category:** {q['category']}  |  **Difficulty:** {q['difficulty']}  |  **Added:** {q['added'][:10]}")
+                    if st.button("🗑️ Delete", key=f"del_q_{i}"):
+                        delete_question(i)
+                        st.rerun()
+
+    # ── Analytics tab ─────────────────────────────────────────
+    with tab_analytics:
+        st.markdown("### 📊 System Analytics")
+        summary = get_analytics_summary()
+        a1,a2,a3 = st.columns(3, gap="medium")
+        for col, label, val in [
+            (a1, "Total Sessions",   summary["total_sessions"]),
+            (a2, "Total Candidates", summary["total_candidates"]),
+            (a3, "Registered Users", summary["total_users"]),
+        ]:
+            with col:
+                st.markdown(f"<div class='recruiter-stat'><div class='stat-value'>{val}</div><div class='stat-label'>{label}</div></div>", unsafe_allow_html=True)
+        if summary.get("averages"):
+            st.markdown("#### Platform Average Scores")
+            avgs = summary["averages"]
+            for k,v in avgs.items():
+                st.progress(v/100, text=f"{k.replace('_',' ').title()}: {v}%")
+
+    # ── Export tab ─────────────────────────────────────────────
+    with tab_export:
+        st.markdown("### 📥 Export Data")
+        candidates = ds_load_candidates()
+        csv_data = to_csv(candidates) if candidates else "No candidate data yet."
+        st.download_button("⬇️ Download All Candidates (CSV)", data=csv_data, file_name="admin_candidates.csv", mime="text/csv", use_container_width=True, type="primary")
+        history_json = ds_load_history()
+        import json as _json
+        st.download_button("⬇️ Download Interview History (JSON)", data=_json.dumps(history_json, indent=2, default=str), file_name="admin_history.json", mime="application/json", use_container_width=True)
+        users_data = load_users()
+        st.download_button("⬇️ Download Users (JSON)", data=_json.dumps(users_data, indent=2, default=str), file_name="admin_users.json", mime="application/json", use_container_width=True)

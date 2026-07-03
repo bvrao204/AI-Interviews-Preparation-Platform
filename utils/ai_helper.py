@@ -83,7 +83,13 @@ def analyze_resume_ai(api_key: str, resume_text: str, job_description: str = "",
         return {
             "success": True,
             "skills": ["Python", "Streamlit", "REST APIs", "Data Analysis", "Git", "SQL"],
-            "experience_summary": "Junior Software Developer with hands-on experience building interactive Streamlit applications and integrating LLM APIs.",
+            "projects": ["Built interactive Streamlit application", "Integrated LLM APIs", "Developed REST APIs"],
+            "education": ["B.S. in Computer Science"],
+            "experience": ["Junior Software Developer at TechCorp (1 Year)"],
+            "certifications": ["AWS Certified Cloud Practitioner"],
+            "soft_skills": ["Problem Solving", "Communication", "Fast Learner"],
+            "technical_skills": ["Python", "SQL", "Git", "Streamlit"],
+            "candidate_profile": "A motivated Junior Software Developer with hands-on experience in building interactive Streamlit applications and integrating LLM APIs. Strong foundation in Python and backend web architecture.",
             "suggested_questions": [
                 "Can you describe a Streamlit application you built and the major challenges you faced?",
                 "How do you handle API error responses and rate limits in Python?",
@@ -93,9 +99,8 @@ def analyze_resume_ai(api_key: str, resume_text: str, job_description: str = "",
             ]
         }
     system_instruction = (
-        "You are an expert HR Manager and Technical Recruiter. Your task is to analyze the candidate's resume "
-        "and suggest 5 specific interview questions tailored to their background. If a job description is "
-        "provided, align the questions to match the skills and responsibilities in that description."
+        "You are an expert HR Manager and Technical Recruiter. Your task is to perform a deep analysis of the candidate's resume "
+        "and extract their complete professional profile, breaking it down into specific categories. Then suggest 5 interview questions."
     )
     
     prompt = f"""
@@ -105,11 +110,17 @@ def analyze_resume_ai(api_key: str, resume_text: str, job_description: str = "",
     Job Description (Optional):
     {job_description}
     
-    Please parse the resume and generate 5 highly relevant technical/behavioral interview questions.
+    Please parse the resume and extract a comprehensive Candidate Profile.
     Return your output strictly as a JSON object with the following structure:
     {{
-        "skills": ["skill1", "skill2", ...],
-        "experience_summary": "A brief 2-sentence summary of the candidate's profile.",
+        "skills": ["A flat list of all prominent skills"],
+        "projects": ["List of key projects built"],
+        "education": ["Degrees and universities"],
+        "experience": ["List of roles and companies with duration"],
+        "certifications": ["List of certifications"],
+        "soft_skills": ["List of soft skills"],
+        "technical_skills": ["List of purely technical skills"],
+        "candidate_profile": "A comprehensive 2-3 sentence executive summary of the candidate's entire profile.",
         "suggested_questions": [
             "Question 1",
             "Question 2",
@@ -138,7 +149,13 @@ def analyze_resume_ai(api_key: str, resume_text: str, job_description: str = "",
             "success": False,
             "error_message": str(e),
             "skills": [],
-            "experience_summary": "",
+            "projects": [],
+            "education": [],
+            "experience": [],
+            "certifications": [],
+            "soft_skills": [],
+            "technical_skills": [],
+            "candidate_profile": "",
             "suggested_questions": []
         }
 
@@ -340,7 +357,7 @@ def generate_next_question(api_key: str, role: str, level: str, chat_history: li
         logging.error(f"Error generating next question: {e}")
         return f"Thank you for your response. Let's move on to the next question. Can you tell me about a time you had to solve a difficult technical problem?"
 
-def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_history: list, demo_mode: bool = False) -> dict:
+def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_history: list, resume_profile: str = "", demo_mode: bool = False) -> dict:
     """
     Analyzes the full interview transcript and provides scores and breakdowns.
     Uses Gemini 1.5 Pro (if possible) for high-quality reasoning, fallback to Flash.
@@ -360,11 +377,18 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
         return {
             "overall_summary": f"In this mock interview for the {level} {role} role, you demonstrated strong communication skills and solid domain knowledge. To improve further, focus on providing more specific, metric-driven examples of your achievements and structuring technical design decisions clearly.",
             "scores": {
-                "technical": 82,
-                "communication": 85,
-                "confidence": 78,
-                "problem_solving": 80,
-                "overall_readiness": 81
+                "resume_score": 92,
+                "interview_score": 85,
+                "communication": 82,
+                "technical_knowledge": 87,
+                "problem_solving": 76,
+                "confidence": 85,
+                "hiring_probability": 89
+            },
+            "recruiter_insights": {
+                "recommended_role": role,
+                "expected_salary": "$110,000 - $130,000",
+                "final_recommendation": "Hire"
             },
             "skill_gap_analysis": {
                 "strengths": [f"{role} Concepts", "Communication Skills", "Problem Solving"],
@@ -396,10 +420,13 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
     prompt = f"""
     Role: {level} {role}
     
+    Candidate Profile (Resume Context):
+    {resume_profile if resume_profile else "No resume provided."}
+    
     Interview Transcript:
     {transcript}
     
-    Analyze the conversation above and return a structured feedback JSON. Highlight what was done well,
+    Analyze the conversation and resume profile above and return a structured feedback JSON representing a "Recruiter Report". Highlight what was done well,
     what needs improvement, and give a model answer for each question asked. In addition, perform a
     skill gap analysis identifying strengths and weaknesses, and construct a 4-week learning roadmap.
     
@@ -407,11 +434,18 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
     {{
         "overall_summary": "A concise paragraph summarizing their overall performance, strengths, and primary areas of growth.",
         "scores": {{
-            "technical": 85,
+            "resume_score": 92,
+            "interview_score": 85,
             "communication": 90,
-            "confidence": 80,
+            "technical_knowledge": 87,
             "problem_solving": 80,
-            "overall_readiness": 84
+            "confidence": 85,
+            "hiring_probability": 89
+        }},
+        "recruiter_insights": {{
+            "recommended_role": "{role}",
+            "expected_salary": "$120k - $140k",
+            "final_recommendation": "Hire"
         }},
         "skill_gap_analysis": {{
             "strengths": ["Skill A", "Skill B", ...],
@@ -491,7 +525,7 @@ def evaluate_interview_feedback(api_key: str, role: str, level: str, chat_histor
             ]
         }
 
-def evaluate_answer_correctness(api_key: str, question: str, answer: str, demo_mode: bool = False) -> dict:
+def evaluate_answer_correctness(api_key: str, question: str, answer: str, interview_format: str = "Standard Q&A", demo_mode: bool = False) -> dict:
     """
     Evaluates a single candidate answer against a question to determine correctness rating.
     Returns:
@@ -507,10 +541,17 @@ def evaluate_answer_correctness(api_key: str, question: str, answer: str, demo_m
         else:
             return {"rating": "Partially Correct", "reason": "Answered the question but could have provided more depth."}
 
-    system_instruction = (
-        "You are an expert technical interviewer. Evaluate the candidate's response to the given question "
-        "and output a correctness rating ('Correct', 'Incorrect', or 'Partially Correct') and a short, 1-sentence reason."
-    )
+    if interview_format == "Technical Coding":
+        system_instruction = (
+            "You are an elite Senior Staff Engineer conducting a strict code review. "
+            "Evaluate the candidate's code submission for Time/Space Complexity, edge cases, best practices, and correctness. "
+            "Output a correctness rating ('Correct', 'Incorrect', or 'Partially Correct') and a short, 1-sentence reason focusing on code quality and complexity."
+        )
+    else:
+        system_instruction = (
+            "You are an expert technical interviewer. Evaluate the candidate's response to the given question "
+            "and output a correctness rating ('Correct', 'Incorrect', or 'Partially Correct') and a short, 1-sentence reason."
+        )
 
     prompt = f"""
     Question: {question}
@@ -548,12 +589,106 @@ def evaluate_answer_correctness(api_key: str, question: str, answer: str, demo_m
         logging.error(f"Error evaluating answer: {e}")
         return {"rating": "Partially Correct", "reason": "System evaluation encountered a transient error."}
 
-def generate_adaptive_question(api_key: str, role: str, level: str, chat_history: list, current_difficulty: str, resume_text: str, job_description: str, demo_mode: bool = False) -> str:
+def generate_ai_coaching(api_key: str, question: str, answer: str, rating: str, demo_mode: bool = False) -> dict:
+    """
+    When a candidate answers incorrectly or partially, generate a rich coaching
+    breakdown to turn mistakes into learning opportunities.
+    Returns a dict with: correct_answer, why, common_mistakes,
+                         recruiter_perspective, sample_best_answer
+    """
+    if demo_mode or api_key == "demo" or not api_key:
+        if rating == "Correct":
+            return {
+                "correct_answer": "Your answer was on point!",
+                "why": "You demonstrated a clear understanding of the core concept and communicated it effectively.",
+                "common_mistakes": [
+                    "Being too vague or generic instead of providing specific examples.",
+                    "Forgetting to quantify impact with metrics.",
+                ],
+                "recruiter_perspective": "Recruiters love answers that combine technical depth with clear communication. You struck that balance well.",
+                "sample_best_answer": "A strong answer like yours ties the concept to a concrete scenario from your experience, explains the trade-offs considered, and quantifies the outcome achieved."
+            }
+        return {
+            "correct_answer": "The ideal response combines technical accuracy with structured communication using the STAR framework (Situation, Task, Action, Result).",
+            "why": "Interviewers assess not just what you know, but how clearly and confidently you explain it. A structured answer demonstrates both competence and professionalism.",
+            "common_mistakes": [
+                "Giving a generic answer without concrete examples from real experience.",
+                "Skipping the 'Result' — always quantify the outcome (e.g., '40% performance improvement').",
+                "Answering too briefly — elaborate on trade-offs and your reasoning.",
+                "Using buzzwords without backing them up with specifics.",
+            ],
+            "recruiter_perspective": "Recruiters spend under 2 minutes per answer. They're scanning for: clear structure, specific examples, measurable impact, and cultural fit signals. Missing any of these reduces your score significantly.",
+            "sample_best_answer": "In my previous role at [Company], I encountered [specific challenge]. I approached it by [specific action], carefully considering [trade-off A] vs [trade-off B]. Ultimately I chose [decision] because [reasoning]. The outcome was [measurable result], which directly improved [business metric] by X%."
+        }
+
+    system_instruction = (
+        "You are an elite interview coach and hiring expert. A candidate has just answered an interview question. "
+        "Your job is to provide a comprehensive coaching breakdown to help them improve. "
+        "Be direct, insightful, and educational. Focus on what makes a truly excellent answer."
+    )
+
+    prompt = f"""
+    Interview Question: {question}
+    
+    Candidate's Answer: {answer}
+    
+    AI Evaluation Rating: {rating}
+    
+    Generate a detailed coaching breakdown in the following JSON format:
+    {{
+        "correct_answer": "A concise explanation of what the correct/ideal answer approach looks like (2-3 sentences).",
+        "why": "Why this is the correct approach — explain the underlying principle or concept in simple terms.",
+        "common_mistakes": [
+            "Common mistake 1 that candidates make on this type of question",
+            "Common mistake 2",
+            "Common mistake 3"
+        ],
+        "recruiter_perspective": "A paragraph explaining exactly how a recruiter or hiring manager thinks when they hear this question — what they're truly evaluating for.",
+        "sample_best_answer": "A complete, exemplary sample answer the candidate can learn from and adapt. Make it realistic, specific, and impressive."
+    }}
+    """
+
+    try:
+        response = safe_generate_content(
+            api_key=api_key,
+            prompt=prompt,
+            model_name="gemini-2.5-flash",
+            system_instruction=system_instruction,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        cleaned = clean_json_string(response.text)
+        data = json.loads(cleaned)
+        # Ensure all keys exist
+        for key in ["correct_answer", "why", "common_mistakes", "recruiter_perspective", "sample_best_answer"]:
+            if key not in data:
+                data[key] = "N/A"
+        if not isinstance(data.get("common_mistakes"), list):
+            data["common_mistakes"] = [data["common_mistakes"]]
+        return data
+    except Exception as e:
+        logging.error(f"Error generating AI coaching: {e}")
+        return {
+            "correct_answer": "Focus on structuring your answer clearly with specific examples.",
+            "why": "A well-structured answer signals both competence and communication skills.",
+            "common_mistakes": ["Being too vague", "No measurable results", "Skipping context"],
+            "recruiter_perspective": "Recruiters evaluate clarity, depth, and cultural fit in every answer.",
+            "sample_best_answer": "Use the STAR framework: Situation → Task → Action → Result."
+        }
+
+def generate_adaptive_question(api_key: str, role: str, level: str, chat_history: list, current_difficulty: str, resume_text: str, job_description: str, interview_format: str = "Standard Q&A", programming_language: str = "Python", demo_mode: bool = False) -> str:
     """
     Generates a single context-aware question corresponding to the current_difficulty level,
     referencing the candidate's resume/JD and preceding discussion, without repeating topics.
     """
     if demo_mode or api_key == "demo" or not api_key:
+        if interview_format == "Technical Coding":
+            if current_difficulty == "Beginner":
+                return f"Write a {programming_language} function to reverse a string in-place without using built-in reverse methods."
+            elif current_difficulty == "Intermediate":
+                return f"Write a {programming_language} function that returns the indices of two numbers in an array that add up to a target sum (Two Sum). Aim for O(n) time complexity."
+            else:
+                return f"Write a {programming_language} class to implement an LRU Cache with `get` and `put` operations in O(1) time complexity."
+                
         # Provide representative mock questions based on difficulty
         if current_difficulty == "Beginner":
             questions = [
@@ -580,12 +715,21 @@ def generate_adaptive_question(api_key: str, role: str, level: str, chat_history
                 return q
         return questions[0]
 
-    system_instruction = (
-        f"You are an elite Technical Recruiter and Interview Designer. Your task is to design a single "
-        f"interview question tailored to the candidate's resume and target job description, matched to the "
-        f"difficulty level: {current_difficulty}. "
-        "Review the prior chat history to ensure you build on the conversation dynamically and DO NOT repeat any question or topic."
-    )
+    if interview_format == "Technical Coding":
+        system_instruction = (
+            f"You are an elite Senior Staff {programming_language} Engineer conducting a technical coding interview. "
+            f"Your task is to design a single, crisp algorithmic or system design coding problem tailored to the candidate's resume and job description, matched to the difficulty level: {current_difficulty}. "
+            "Review the prior chat history to ensure you build on the conversation dynamically and DO NOT repeat any problem. Return ONLY the coding problem statement."
+        )
+        format_constraints = f"The problem MUST be a coding challenge strictly for {programming_language}. Give them a LeetCode style problem statement."
+    else:
+        system_instruction = (
+            f"You are an elite Technical Recruiter and Interview Designer. Your task is to design a single "
+            f"interview question tailored to the candidate's resume and target job description, matched to the "
+            f"difficulty level: {current_difficulty}. "
+            "Review the prior chat history to ensure you build on the conversation dynamically and DO NOT repeat any question or topic."
+        )
+        format_constraints = "Highly varied in QUESTION TYPE compared to previous questions in the conversation."
 
     # Format history
     history_str = ""
@@ -610,16 +754,11 @@ def generate_adaptive_question(api_key: str, role: str, level: str, chat_history
     Design EXACTLY ONE distinct interview question matching the difficulty level: {current_difficulty}.
     Ensure the question is:
     - Custom-tailored to the resume and job description.
+    - {format_constraints}
     - Specific to the target difficulty level:
       - Beginner: Basic resume validations, simple concept definitions, or starter behavioral prompts.
       - Intermediate: Scenario-based questions, coding design patterns, debugging, or API setup logic.
       - Advanced: Architectural scaling, system design trade-offs, security, or complex engineering design constraints.
-    - Highly varied in QUESTION TYPE compared to previous questions in the conversation. Cycle dynamically between:
-      1. Behavioral (e.g., leadership, conflict resolution, teamwork)
-      2. Foundational/Theoretical knowledge
-      3. Scenario/Situational problem-solving
-      4. Past Project experiences
-      5. Algorithms/Data Structures
     - Contextually progressive, transitioning from previous replies.
     - Unique and doesn't repeat any topics or question types already asked consecutively.
     Return only the question text as your entire response.
