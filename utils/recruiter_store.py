@@ -27,6 +27,7 @@ DEMO_CANDIDATES = [
         "final_recommendation": "Hire",
         "top_skills": ["Python", "System Design", "Data Structures"],
         "weak_skills": ["Leadership", "Cloud Architecture"],
+        "eye_contact": {"looking_at_screen": 88, "looking_away": 7, "reading_paper": 5}
     },
     {
         "name": "Bob Kumar",
@@ -43,6 +44,7 @@ DEMO_CANDIDATES = [
         "final_recommendation": "Waitlist",
         "top_skills": ["REST APIs", "SQL", "Node.js"],
         "weak_skills": ["System Design", "Concurrency", "Distributed Systems"],
+        "eye_contact": {"looking_at_screen": 62, "looking_away": 25, "reading_paper": 13}
     },
     {
         "name": "Sarah Lee",
@@ -59,6 +61,7 @@ DEMO_CANDIDATES = [
         "final_recommendation": "Strong Hire",
         "top_skills": ["Machine Learning", "PyTorch", "Statistics", "Python"],
         "weak_skills": ["Frontend Integration"],
+        "eye_contact": {"looking_at_screen": 94, "looking_away": 4, "reading_paper": 2}
     },
 ]
 
@@ -103,6 +106,7 @@ def add_candidate(eval_data: dict, candidate_name: str, role: str):
         "final_recommendation": insights.get("final_recommendation", "Consider"),
         "top_skills": gap.get("strengths", []),
         "weak_skills": gap.get("weaknesses", []),
+        "eye_contact": eval_data.get("eye_contact", {"looking_at_screen": 85, "looking_away": 10, "reading_paper": 5})
     }
 
     # Avoid saving the exact same session twice

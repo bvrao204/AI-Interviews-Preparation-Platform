@@ -25,6 +25,11 @@ from utils.skill_graph import (
     predict_difficulty, get_resources, categorize_skills
 )
 from utils.resume_parser import parse_pdf_resume
+from utils.eye_tracker import (
+    start_eye_tracker_server, get_session_id,
+    get_current_eye_status, get_eye_contact_percentages,
+    get_eye_tracker_html
+)
 from utils.ai_helper import (
     analyze_resume_ai,
     generate_custom_questions,
@@ -37,6 +42,10 @@ from utils.ai_helper import (
     generate_adaptive_question,
     generate_ai_coaching
 )
+
+# Start background eye tracking local TCP receiver service
+start_eye_tracker_server()
+
 # Load environment variables
 load_dotenv(override=True)
 
@@ -171,6 +180,10 @@ if "difficulty_history" not in st.session_state:
     st.session_state.difficulty_history = []
 if "evaluations_history" not in st.session_state:
     st.session_state.evaluations_history = []
+if "eye_contact_tracked" not in st.session_state:
+    st.session_state.eye_contact_tracked = {"looking_at_screen": 100, "looking_away": 0, "reading_paper": 0}
+# Initialize user's unique eye tracker session key
+session_id = get_session_id()
 if "current_page" not in st.session_state:
     st.session_state.current_page = "🏠 Home"
 
@@ -716,6 +729,20 @@ elif nav_option == "🎙️ Mock Interview":
                         st.markdown(f"<div class='chat-bubble {role_class}'>{bubble_text}</div>", unsafe_allow_html=True)
             
         with col2:
+            # 👁️ Live Eye Contact Tracker Webcam (Phase 13 / Research Contribution)
+            with st.container(border=True):
+                st.markdown("### 👁️ Focus & Eye Tracker")
+                st.components.v1.html(get_eye_tracker_html(session_id), height=255, scrolling=False)
+                
+                # Fetch live status from TCP backend
+                current_status = get_current_eye_status(session_id)
+                if current_status == "Looking at screen":
+                    st.success("🟢 Gaze: Focused on screen")
+                elif current_status == "Looking away":
+                    st.warning("🟡 Gaze: Looking away — please focus!")
+                elif current_status == "Reading from paper":
+                    st.error("🔴 Gaze: Reading from paper/notes!")
+
             if st.session_state.waiting_for_next:
                 with st.container(border=True):
                     st.markdown("### ➡️ Ready for Next Question?")
@@ -1018,6 +1045,11 @@ elif nav_option == "📈 Performance Feedback":
                     resume_profile=st.session_state.candidate_profile or st.session_state.resume_summary,
                     demo_mode=st.session_state.demo_mode
                 )
+                
+                # Fetch eye tracking percentages from the tracker module
+                eye_percentages = get_eye_contact_percentages(session_id)
+                st.session_state.evaluation_results["eye_contact"] = eye_percentages
+                
                 # ── Auto-save to Recruiter Dashboard ──
                 add_candidate(
                     eval_data=st.session_state.evaluation_results,
@@ -1150,6 +1182,27 @@ elif nav_option == "📈 Performance Feedback":
                     margin=dict(l=60, r=60, t=30, b=30)
                 )
                 st.plotly_chart(fig, use_container_width=True)
+            
+            # 👁️ Eye Contact Analytics Card (Phase 13 / Research Contribution)
+            with st.container(border=True):
+                st.markdown("### 👁️ Eye Contact & Attention Analysis")
+                eye_stats = eval_data.get("eye_contact", {"looking_at_screen": 85, "looking_away": 10, "reading_paper": 5})
+                
+                scr = eye_stats.get("looking_at_screen", 85)
+                away = eye_stats.get("looking_away", 10)
+                paper = eye_stats.get("reading_paper", 5)
+                
+                st.progress(scr / 100, text=f"🟢 Focused on Screen: {scr}%")
+                st.progress(away / 100, text=f"🟡 Looking Away: {away}%")
+                st.progress(paper / 100, text=f"🔴 Reading from Paper: {paper}%")
+                
+                st.markdown("<div style='margin-top: 12px;'></div>", unsafe_allow_html=True)
+                if scr >= 80:
+                    st.success("✔ Excellent eye contact! You maintained strong focus on the screen throughout the interview.")
+                elif paper > away:
+                    st.warning("⚠ Attention Alert: You spent significant time looking down. Avoid reading directly from notes to show confidence.")
+                else:
+                    st.warning("⚠ Attention Alert: You looked away frequently. Try to maintain consistent eye contact with the screen/camera to show engagement.")
             
         with col2:
             with st.container(border=True):
@@ -1319,7 +1372,8 @@ elif nav_option == "🏢 Recruiter Dashboard":
                       <tr>
                         <td style='padding:4px 8px;color:#9CA3AF;'>Expected Salary</td>
                         <td style='padding:4px 8px;font-weight:600;'>{c['expected_salary']}</td>
-                        <td></td><td></td>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Eye Contact</td>
+                        <td style='padding:4px 8px;font-weight:700;color:#34D399;'>🟢 {c.get('eye_contact', {}).get('looking_at_screen', 85)}% Focused</td>
                       </tr>
                     </table>
                     """, unsafe_allow_html=True)
@@ -1526,6 +1580,11 @@ elif nav_option == "📜 Interview History":
                         <td style='padding:4px 8px;color:#9CA3AF;'>Hire Probability</td>
                         <td style='font-weight:700;color:#EC4899;'>{s['hiring_probability']}%</td>
                       </tr>
+                      <tr>
+                        <td style='padding:4px 8px;color:#9CA3AF;'>Eye Contact Focus</td>
+                        <td style='font-weight:700;color:#10B981;'>{s.get('eye_contact', {}).get('looking_at_screen', 85)}%</td>
+                        <td></td><td></td>
+                      </tr>
                     </table>""", unsafe_allow_html=True)
                 with c2:
                     st.markdown(f"<span style='background:{badge_color}20;color:{badge_color};border:1px solid {badge_color}60;padding:4px 14px;border-radius:20px;font-weight:700;font-size:0.82rem;'>{rec}</span>", unsafe_allow_html=True)
@@ -1661,6 +1720,38 @@ elif nav_option == "📈 Analytics":
                 height=320, margin=dict(l=10,r=10,t=30,b=10)
             )
             st.plotly_chart(fig_delta, use_container_width=True)
+
+        # ── Eye Contact Trend Chart ───────────────────────────
+        st.markdown("---")
+        st.markdown("### 👁️ Eye Contact & Attention Trend")
+        
+        scr_vals = [s.get("eye_contact", {}).get("looking_at_screen", 85) for s in history]
+        away_vals = [s.get("eye_contact", {}).get("looking_away", 10) for s in history]
+        paper_vals = [s.get("eye_contact", {}).get("reading_paper", 5) for s in history]
+        
+        fig_eye = go.Figure()
+        fig_eye.add_trace(go.Scatter(
+            x=labels, y=scr_vals, name="Looking at Screen", mode="lines+markers",
+            line=dict(color="#34D399", width=3), marker=dict(size=8)
+        ))
+        fig_eye.add_trace(go.Scatter(
+            x=labels, y=away_vals, name="Looking Away", mode="lines+markers",
+            line=dict(color="#FBBF24", width=2, dash="dash"), marker=dict(size=6)
+        ))
+        fig_eye.add_trace(go.Scatter(
+            x=labels, y=paper_vals, name="Reading from Paper", mode="lines+markers",
+            line=dict(color="#F87171", width=2, dash="dot"), marker=dict(size=6)
+        ))
+        
+        fig_eye.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#E5E7EB", family="Inter"),
+            legend=dict(orientation="h", y=1.05, x=1, xanchor="right"),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.06)", range=[0, 110]),
+            height=320, margin=dict(l=10, r=10, t=30, b=10)
+        )
+        st.plotly_chart(fig_eye, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
 # PAGE 7 : SKILL INTELLIGENCE  (Phase 13)

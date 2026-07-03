@@ -27,6 +27,7 @@ DEMO_HISTORY = [
         "top_skills":   ["Python", "REST APIs"],
         "weak_skills":  ["System Design", "Concurrency", "Communication"],
         "summary": "Struggled with system design depth. Communication was unclear under pressure.",
+        "eye_contact": {"looking_at_screen": 65, "looking_away": 20, "reading_paper": 15}
     },
     {
         "session": 2,
@@ -44,6 +45,7 @@ DEMO_HISTORY = [
         "top_skills":   ["Python", "System Design", "REST APIs"],
         "weak_skills":  ["Concurrency", "Database Optimization"],
         "summary": "Clear improvement in communication. Still needs work on advanced DB topics.",
+        "eye_contact": {"looking_at_screen": 78, "looking_away": 14, "reading_paper": 8}
     },
     {
         "session": 3,
@@ -61,6 +63,7 @@ DEMO_HISTORY = [
         "top_skills":   ["Python", "System Design", "Concurrency", "REST APIs"],
         "weak_skills":  ["Leadership"],
         "summary": "Excellent performance across all areas. Strong hire recommendation.",
+        "eye_contact": {"looking_at_screen": 89, "looking_away": 7, "reading_paper": 4}
     },
 ]
 
@@ -108,6 +111,7 @@ def add_session(eval_data: dict, role: str):
         "top_skills":  gap.get("strengths", []),
         "weak_skills": gap.get("weaknesses", []),
         "summary":     eval_data.get("overall_summary", ""),
+        "eye_contact": eval_data.get("eye_contact", {"looking_at_screen": 85, "looking_away": 10, "reading_paper": 5})
     }
     st.session_state.interview_history.append(record)
     save_history(st.session_state.interview_history)
