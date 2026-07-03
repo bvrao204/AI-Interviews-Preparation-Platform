@@ -1,21 +1,24 @@
 cookie:
   expiry_days: 7
-  key: "ai_interview_platform_secret_key_2024"
-  name: "ai_interview_auth"
-
+  key: ai_interview_platform_secret_key_2024
+  name: ai_interview_auth
 credentials:
   usernames:
     admin:
       email: admin@aiinterview.com
       name: Admin User
-      password: "$2b$12$xYEE9cOuCxDf2FMFvcxcZudWImG4gLMpFWxxycip74BUR19.6QsGm"
+      password: $2b$12$xYEE9cOuCxDf2FMFvcxcZudWImG4gLMpFWxxycip74BUR19.6QsGm
       role: admin
     candidate:
       email: candidate@aiinterview.com
       name: Demo Candidate
-      password: "$2b$12$mg5HNhiTxRhb0PNPqS1yWOhAykPP3DnT3dktWdmA4jqyr.nPINtKC"
+      password: $2b$12$mg5HNhiTxRhb0PNPqS1yWOhAykPP3DnT3dktWdmA4jqyr.nPINtKC
       role: candidate
-
-# Default passwords (change these!):
-# admin     → Admin@123
-# candidate → Demo@123
+    venky:
+      email: bvenkate204@gmail.com
+      first_name: BELLAMKONDA VENKATESWARA
+      last_name: RAO
+      logged_in: false
+      password: $2b$12$0ccWPK//4CvoK8/HTx7uu.z63C1j5Mh5SR6.xMsMskMCN5CFqKnwi
+      role: candidate
+      roles: null

@@ -76,6 +76,10 @@ authenticator = stauth.Authenticate(
 # Render login/register widget if not authenticated
 auth_status = st.session_state.get("authentication_status")
 
+# Initialize login mode state
+if "auth_mode" not in st.session_state:
+    st.session_state.auth_mode = "Login"
+
 if not auth_status:
     st.markdown("""
     <div style='text-align:center;padding:30px 0 10px;'>
@@ -84,9 +88,16 @@ if not auth_status:
         <p style='color:#9CA3AF;margin-top:8px;'>Please sign in or create an account to start</p>
     </div>""", unsafe_allow_html=True)
 
-    tab_login, tab_register = st.tabs(["🔑 Login", "📝 Create Account"])
+    auth_mode = st.radio(
+        "Action Selection",
+        ["🔑 Login", "📝 Create Account"],
+        index=0 if st.session_state.auth_mode == "Login" else 1,
+        horizontal=True,
+        label_visibility="collapsed"
+    )
 
-    with tab_login:
+    if auth_mode == "🔑 Login":
+        st.session_state.auth_mode = "Login"
         authenticator.login()
         if st.session_state.get("authentication_status") is False:
             st.error("❌ Username or password is incorrect.")
@@ -104,9 +115,10 @@ if not auth_status:
                 🎓 <strong>Candidate:</strong> <code>candidate</code> / <code>Demo@123</code>
             </div>""", unsafe_allow_html=True)
 
-    with tab_register:
+    else:
+        st.session_state.auth_mode = "Register"
         try:
-            # Renders register form without complex captcha for easier registration
+            # Renders register form
             reg_result = authenticator.register_user(captcha=False)
             if reg_result:
                 email_reg, username_reg, name_reg = reg_result
@@ -115,7 +127,11 @@ if not auth_status:
                     _auth_config["credentials"]["usernames"][username_reg]["role"] = "candidate"
                     with open(_auth_config_path, "w") as f:
                         yaml.dump(_auth_config, f, default_flow_style=False)
-                    st.success("🎉 Account created successfully! Please switch to the **Login** tab to sign in.")
+                    
+                    # Programmatic redirect: set status to Login and reload
+                    st.session_state.auth_mode = "Login"
+                    st.toast("🎉 Account created successfully! Redirecting to login page...", icon="✅")
+                    st.rerun()
         except Exception as e:
             st.error(f"Error creating account: {e}")
             
