@@ -119,12 +119,15 @@ def get_eye_contact_percentages(session_id: str) -> dict:
     }
 
 def get_eye_tracker_html(session_id: str) -> str:
-    """Generates the HTML string containing client-side MediaPipe eye tracking."""
+    """Generates the HTML string containing client-side MediaPipe eye tracking.
+    Supports both desktop and mobile browsers (front-facing camera).
+    """
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
             body {{
                 margin: 0;
@@ -151,6 +154,7 @@ def get_eye_tracker_html(session_id: str) -> str:
                 transform: scaleX(-1); /* Mirror camera feed */
                 background: #111827;
                 border: 1px solid rgba(255,255,255,0.08);
+                object-fit: cover;
             }}
             canvas {{
                 position: absolute;
@@ -188,6 +192,27 @@ def get_eye_tracker_html(session_id: str) -> str:
             .status-looking-away   {{ background: rgba(245, 158, 11, 0.2);  color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.4); }}
             .status-reading-paper  {{ background: rgba(239, 68, 68, 0.2);   color: #F87171; border: 1px solid rgba(239, 68, 68, 0.4); }}
             .status-loading        {{ background: rgba(156, 163, 175, 0.2); color: #D1D5DB; border: 1px solid rgba(156, 163, 175, 0.4); }}
+            #error-msg {{
+                display: none;
+                text-align: center;
+                padding: 20px;
+                color: #FBBF24;
+                font-size: 0.85rem;
+            }}
+
+            /* Mobile responsive */
+            @media (max-width: 768px) {{
+                video {{
+                    max-height: 180px;
+                }}
+                .status-badge {{
+                    font-size: 0.65rem;
+                    padding: 3px 8px;
+                }}
+                #overlay {{
+                    padding: 6px 8px;
+                }}
+            }}
         </style>
         
         <!-- MediaPipe and Camera Utils CDNs -->
@@ -202,6 +227,10 @@ def get_eye_tracker_html(session_id: str) -> str:
                 <span style="font-size: 0.8rem; font-weight: 600; color: #9CA3AF;">Eye Tracker</span>
                 <span id="status_badge" class="status-badge status-loading">Initialising...</span>
             </div>
+            <div id="error-msg">
+                📷 Camera access is required for eye tracking.<br>
+                Please allow camera permissions in your browser settings and reload.
+            </div>
         </div>
 
         <script>
@@ -209,6 +238,7 @@ def get_eye_tracker_html(session_id: str) -> str:
             const canvasElement = document.getElementById('output_canvas');
             const canvasCtx = canvasElement.getContext('2d');
             const statusBadge = document.getElementById('status_badge');
+            const errorMsg = document.getElementById('error-msg');
             
             const sessionId = "{session_id}";
             let lastStatus = "";
@@ -324,8 +354,16 @@ def get_eye_tracker_html(session_id: str) -> str:
 
             faceMesh.onResults(onResults);
 
-            // Access user webcam
-            navigator.mediaDevices.getUserMedia({{ video: {{ width: 320, height: 240 }} }})
+            // Access user webcam — use front camera ('user') on mobile, any camera on desktop
+            const videoConstraints = {{
+                video: {{
+                    facingMode: 'user',
+                    width: {{ ideal: 320 }},
+                    height: {{ ideal: 240 }}
+                }}
+            }};
+
+            navigator.mediaDevices.getUserMedia(videoConstraints)
                 .then(stream => {{
                     videoElement.srcObject = stream;
                     const camera = new Camera(videoElement, {{
@@ -339,9 +377,13 @@ def get_eye_tracker_html(session_id: str) -> str:
                 }})
                 .catch(err => {{
                     console.error("Camera access blocked:", err);
+                    // Show user-friendly error on mobile
+                    document.getElementById('overlay').style.display = 'none';
+                    errorMsg.style.display = 'block';
                     updatePythonState("Looking away");
                 }});
         </script>
     </body>
     </html>
     """
+
