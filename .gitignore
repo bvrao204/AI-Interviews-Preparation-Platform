@@ -5,6 +5,7 @@ ENV/
 
 # Environment secrets
 .env
+auth_config.yaml
 
 # Python caching
 __pycache__/
