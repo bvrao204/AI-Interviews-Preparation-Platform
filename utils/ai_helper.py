@@ -1,3 +1,4 @@
+import os
 import google.generativeai as genai
 import json
 import logging
@@ -783,6 +784,11 @@ def text_to_speech_bytes(text: str) -> bytes:
     import os
     import re
     import tempfile
+
+    # Disable TTS in cloud environments where audio drivers are unavailable
+    if os.getenv("DISABLE_TTS", "false").lower() == "true":
+        logging.info("TTS is disabled via DISABLE_TTS env var.")
+        return b""
 
     try:
         import pyttsx3

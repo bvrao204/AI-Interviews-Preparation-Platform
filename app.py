@@ -969,7 +969,7 @@ elif nav_option == "🎙️ Mock Interview":
                             st.session_state.current_page = "📈 Performance Feedback"
                             st.rerun()
             else:
-                # 🤖 AI Voice Assistant Container
+                # 🤖 AI Voice Assistant Container (TTS)
                 with st.container(border=True):
                     st.markdown("### 🤖 AI Voice Assistant")
                     if st.session_state.chat_history:
@@ -980,14 +980,6 @@ elif nav_option == "🎙️ Mock Interview":
                                 break
                         
                         if latest_ai_msg:
-                            audio_bytes = text_to_speech_bytes(latest_ai_msg)
-                            if audio_bytes:
-                                should_autoplay = (st.session_state.last_played_question_idx != st.session_state.current_question_idx)
-                                st.audio(audio_bytes, format="audio/mp3", autoplay=should_autoplay)
-                                if should_autoplay:
-                                    st.session_state.last_played_question_idx = st.session_state.current_question_idx
-                                    st.rerun()
-                            else:
                                 st.warning("🔇 Speech synthesis unavailable.")
 
                 with st.container(border=True):
