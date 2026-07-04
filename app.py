@@ -249,17 +249,41 @@ with st.sidebar:
     st.markdown("Prepare for your dream role with interactive AI-powered mock interviews.")
     st.markdown("---")
     
-    # API key setup (from .env or user input override)
+    # API key setup — each user provides their own key
     api_key_input = st.text_input(
-        "Enter Gemini API Key",
+        "🔑 Enter Your Gemini API Key",
         value=st.session_state.api_key,
         type="password",
-        help="Get your key from https://aistudio.google.com/ or configure it in .env"
+        placeholder="Paste your API key here...",
+        help="Each user must provide their own Google Gemini API key to use the AI features."
     )
     if api_key_input != st.session_state.api_key:
         st.session_state.api_key = api_key_input.strip().strip("'\"")
-        st.success("API Key updated!")
-        
+        st.success("✅ API Key updated!")
+
+    # Show instructions on how to generate a key
+    with st.expander("📖 How to get your free Gemini API Key"):
+        st.markdown("""
+        **Follow these simple steps:**
+
+        1️⃣ Go to **[Google AI Studio](https://aistudio.google.com/apikey)**
+
+        2️⃣ Sign in with your **Google account**
+
+        3️⃣ Click **"Create API Key"**
+
+        4️⃣ Select a Google Cloud project (or create a new one)
+
+        5️⃣ **Copy** the generated key
+
+        6️⃣ **Paste** it in the field above
+
+        ---
+        > 💡 **Tip:** The free tier gives you **15 requests/min** for Gemini Flash — more than enough for an interview session!
+        >
+        > 🔒 Your key is stored only in your browser session and is **never saved** on our server.
+        """)
+    
     st.markdown("---")
     
     # Demo Mode toggle
