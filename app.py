@@ -109,21 +109,19 @@ if not auth_status:
     if auth_mode == "🔑 Login":
         st.session_state.auth_mode = "Login"
         authenticator.login()
+        # Disable browser autocomplete on the password field
+        st.markdown("""
+        <script>
+            const passwordInputs = window.parent.document.querySelectorAll('input[type="password"]');
+            passwordInputs.forEach(input => {
+                input.setAttribute('autocomplete', 'new-password');
+            });
+        </script>
+        """, unsafe_allow_html=True)
         if st.session_state.get("authentication_status") is False:
             st.error("❌ Username or password is incorrect.")
-            st.markdown("""
-            <div style='background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);margin-top:10px;'>
-                <strong style='color:#818CF8;'>Default System Credentials:</strong><br/>
-                💼 <strong>Admin:</strong> <code>admin</code> / <code>Admin@123</code><br/>
-                🎓 <strong>Candidate:</strong> <code>candidate</code> / <code>Demo@123</code>
-            </div>""", unsafe_allow_html=True)
         elif st.session_state.get("authentication_status") is None:
-            st.markdown("""
-            <div style='background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);margin-top:10px;'>
-                <strong style='color:#818CF8;'>Default System Credentials:</strong><br/>
-                💼 <strong>Admin:</strong> <code>admin</code> / <code>Admin@123</code><br/>
-                🎓 <strong>Candidate:</strong> <code>candidate</code> / <code>Demo@123</code>
-            </div>""", unsafe_allow_html=True)
+            st.info("Please enter your username and password to continue.")
 
     else:
         st.session_state.auth_mode = "Register"
