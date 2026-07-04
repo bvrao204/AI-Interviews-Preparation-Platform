@@ -73,8 +73,46 @@ inject_custom_css()
 
 # ── Authentication Setup ──────────────────────────────────────────────────
 _auth_config_path = os.path.join(os.path.dirname(__file__), "auth_config.yaml")
-with open(_auth_config_path) as f:
-    _auth_config = yaml.load(f, Loader=SafeLoader)
+
+# Default auth config — used when auth_config.yaml is absent (e.g. on Streamlit Cloud)
+_DEFAULT_AUTH_CONFIG = {
+    "cookie": {
+        "expiry_days": 7,
+        "key": "ai_interview_platform_secret_key_2024",
+        "name": "ai_interview_auth"
+    },
+    "credentials": {
+        "usernames": {
+            "admin": {
+                "email": "admin@aiinterview.com",
+                "name": "Admin User",
+                # bcrypt hash for "Admin@123"
+                "password": "$2b$12$xYEE9cOuCxDf2FMFvcxcZudWImG4gLMpFWxxycip74BUR19.6QsGm",
+                "role": "admin"
+            },
+            "candidate": {
+                "email": "candidate@aiinterview.com",
+                "name": "Demo Candidate",
+                # bcrypt hash for "Demo@123"
+                "password": "$2b$12$mg5HNhiTxRhb0PNPqS1yWOhAykPP3DnT3dktWdmA4jqyr.nPINtKC",
+                "role": "candidate"
+            }
+        }
+    }
+}
+
+# Load or auto-create auth_config.yaml
+if os.path.exists(_auth_config_path):
+    with open(_auth_config_path) as f:
+        _auth_config = yaml.load(f, Loader=SafeLoader)
+else:
+    # Running on cloud or fresh machine — use defaults
+    _auth_config = _DEFAULT_AUTH_CONFIG
+    try:
+        with open(_auth_config_path, "w") as f:
+            yaml.dump(_auth_config, f, default_flow_style=False)
+    except Exception:
+        pass  # Read-only filesystem on cloud — just use the in-memory defaults
 
 authenticator = stauth.Authenticate(
     _auth_config["credentials"],
