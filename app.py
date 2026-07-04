@@ -40,7 +40,8 @@ from utils.ai_helper import (
     text_to_speech_bytes,
     evaluate_answer_correctness,
     generate_adaptive_question,
-    generate_ai_coaching
+    generate_ai_coaching,
+    detect_ai_content
 )
 
 # Start background eye tracking local TCP receiver service
@@ -270,6 +271,8 @@ if "interview_history" not in st.session_state:
     st.session_state.interview_history = []
 if "coaching_result" not in st.session_state:
     st.session_state.coaching_result = None
+if "ai_detection_result" not in st.session_state:
+    st.session_state.ai_detection_result = None
 if "difficulty_history" not in st.session_state:
     st.session_state.difficulty_history = []
 if "evaluations_history" not in st.session_state:
@@ -982,6 +985,52 @@ elif nav_option == "🎙️ Mock Interview":
                                 <div style='color:#F472B6;font-weight:700;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;'>⭐ Sample Best Answer</div>
                                 <div style='color:#E5E7EB;font-size:0.9rem;font-style:italic;line-height:1.6;'>{coach.get('sample_best_answer','')}</div>
                             </div>""", unsafe_allow_html=True)
+
+                        # ── 🔍 AI Content Detection Badge ──────────────────────────
+                        ai_det = st.session_state.get("ai_detection_result")
+                        if ai_det:
+                            st.markdown("---")
+                            verdict    = ai_det.get("verdict", "Uncertain")
+                            confidence = ai_det.get("confidence", 50)
+                            risk       = ai_det.get("risk_level", "Medium")
+                            signals    = ai_det.get("signals", [])
+                            explanation= ai_det.get("explanation", "")
+
+                            # Colour scheme based on verdict
+                            if verdict == "Human Written":
+                                border_color = "#10B981"; badge_bg = "rgba(16,185,129,0.15)"; badge_text = "#34D399"; icon = "🟢"
+                            elif verdict == "Likely AI-Generated":
+                                border_color = "#EF4444"; badge_bg = "rgba(239,68,68,0.15)";  badge_text = "#F87171"; icon = "🔴"
+                            else:
+                                border_color = "#F59E0B"; badge_bg = "rgba(245,158,11,0.15)"; badge_text = "#FBBF24"; icon = "🟡"
+
+                            risk_colors = {"Low": "#34D399", "Medium": "#FBBF24", "High": "#F87171"}
+                            risk_color  = risk_colors.get(risk, "#D1D5DB")
+
+                            signals_html = "".join(
+                                f"<span style='background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:2px 10px;font-size:0.78rem;color:#D1D5DB;margin:2px;display:inline-block;'>{s}</span>"
+                                for s in signals
+                            )
+
+                            st.markdown(f"""
+                            <div style='background:{badge_bg};border:1px solid {border_color};border-radius:10px;padding:14px 18px;margin-bottom:10px;'>
+                                <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;'>
+                                    <span style='color:{badge_text};font-weight:700;font-size:1rem;'>{icon} AI Content Detection</span>
+                                    <span style='background:{badge_bg};border:1px solid {border_color};color:{badge_text};padding:3px 12px;border-radius:20px;font-size:0.78rem;font-weight:700;'>{verdict}</span>
+                                </div>
+                                <div style='display:flex;gap:20px;margin-bottom:8px;'>
+                                    <div>
+                                        <div style='color:#9CA3AF;font-size:0.75rem;'>AI Confidence</div>
+                                        <div style='color:{badge_text};font-size:1.1rem;font-weight:700;'>{confidence}%</div>
+                                    </div>
+                                    <div>
+                                        <div style='color:#9CA3AF;font-size:0.75rem;'>Risk Level</div>
+                                        <div style='color:{risk_color};font-size:1.1rem;font-weight:700;'>{risk}</div>
+                                    </div>
+                                </div>
+                                <div style='color:#D1D5DB;font-size:0.88rem;margin-bottom:8px;'>{explanation}</div>
+                                <div style='margin-top:6px;'>{signals_html}</div>
+                            </div>""", unsafe_allow_html=True)
                     
                     st.info("Your response has been submitted successfully! Take a breath, and click below when you're ready to proceed.")
                     
@@ -1134,6 +1183,16 @@ elif nav_option == "🎙️ Mock Interview":
                                         demo_mode=st.session_state.demo_mode
                                     )
                                 st.session_state.evaluations_history.append(eval_result)
+
+                                # 🔍 Run AI Content Detection on the answer
+                                with st.spinner("🔍 Scanning for AI-generated content..."):
+                                    ai_detection_result = detect_ai_content(
+                                        api_key=st.session_state.api_key,
+                                        question=st.session_state.chat_history[-2]["text"],
+                                        answer=current_typed_text,
+                                        demo_mode=st.session_state.demo_mode
+                                    )
+                                st.session_state.ai_detection_result = ai_detection_result
                                 
                                 # Adjust difficulty
                                 rating = eval_result.get("rating", "Partially Correct")

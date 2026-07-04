@@ -802,6 +802,201 @@ def text_to_speech_bytes(text: str) -> bytes:
 
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
             tmp_filepath = tmp_file.name
+                "sample_best_answer": "A strong answer like yours ties the concept to a concrete scenario from your experience, explains the trade-offs considered, and quantifies the outcome achieved."
+            }
+        return {
+            "correct_answer": "The ideal response combines technical accuracy with structured communication using the STAR framework (Situation, Task, Action, Result).",
+            "why": "Interviewers assess not just what you know, but how clearly and confidently you explain it. A structured answer demonstrates both competence and professionalism.",
+            "common_mistakes": [
+                "Giving a generic answer without concrete examples from real experience.",
+                "Skipping the 'Result' — always quantify the outcome (e.g., '40% performance improvement').",
+                "Answering too briefly — elaborate on trade-offs and your reasoning.",
+                "Using buzzwords without backing them up with specifics.",
+            ],
+            "recruiter_perspective": "Recruiters spend under 2 minutes per answer. They're scanning for: clear structure, specific examples, measurable impact, and cultural fit signals. Missing any of these reduces your score significantly.",
+            "sample_best_answer": "In my previous role at [Company], I encountered [specific challenge]. I approached it by [specific action], carefully considering [trade-off A] vs [trade-off B]. Ultimately I chose [decision] because [reasoning]. The outcome was [measurable result], which directly improved [business metric] by X%."
+        }
+
+    system_instruction = (
+        "You are an elite interview coach and hiring expert. A candidate has just answered an interview question. "
+        "Your job is to provide a comprehensive coaching breakdown to help them improve. "
+        "Be direct, insightful, and educational. Focus on what makes a truly excellent answer."
+    )
+
+    prompt = f"""
+    Interview Question: {question}
+    
+    Candidate's Answer: {answer}
+    
+    AI Evaluation Rating: {rating}
+    
+    Generate a detailed coaching breakdown in the following JSON format:
+    {{
+        "correct_answer": "A concise explanation of what the correct/ideal answer approach looks like (2-3 sentences).",
+        "why": "Why this is the correct approach — explain the underlying principle or concept in simple terms.",
+        "common_mistakes": [
+            "Common mistake 1 that candidates make on this type of question",
+            "Common mistake 2",
+            "Common mistake 3"
+        ],
+        "recruiter_perspective": "A paragraph explaining exactly how a recruiter or hiring manager thinks when they hear this question — what they're truly evaluating for.",
+        "sample_best_answer": "A complete, exemplary sample answer the candidate can learn from and adapt. Make it realistic, specific, and impressive."
+    }}
+    """
+
+    try:
+        response = safe_generate_content(
+            api_key=api_key,
+            prompt=prompt,
+            model_name="gemini-2.5-flash",
+            system_instruction=system_instruction,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        cleaned = clean_json_string(response.text)
+        data = json.loads(cleaned)
+        # Ensure all keys exist
+        for key in ["correct_answer", "why", "common_mistakes", "recruiter_perspective", "sample_best_answer"]:
+            if key not in data:
+                data[key] = "N/A"
+        if not isinstance(data.get("common_mistakes"), list):
+            data["common_mistakes"] = [data["common_mistakes"]]
+        return data
+    except Exception as e:
+        logging.error(f"Error generating AI coaching: {e}")
+        return {
+            "correct_answer": "Focus on structuring your answer clearly with specific examples.",
+            "why": "A well-structured answer signals both competence and communication skills.",
+            "common_mistakes": ["Being too vague", "No measurable results", "Skipping context"],
+            "recruiter_perspective": "Recruiters evaluate clarity, depth, and cultural fit in every answer.",
+            "sample_best_answer": "Use the STAR framework: Situation → Task → Action → Result."
+        }
+
+def generate_adaptive_question(api_key: str, role: str, level: str, chat_history: list, current_difficulty: str, resume_text: str, job_description: str, interview_format: str = "Standard Q&A", programming_language: str = "Python", demo_mode: bool = False) -> str:
+    """
+    Generates a single context-aware question corresponding to the current_difficulty level,
+    referencing the candidate's resume/JD and preceding discussion, without repeating topics.
+    """
+    if demo_mode or api_key == "demo" or not api_key:
+        if interview_format == "Technical Coding":
+            if current_difficulty == "Beginner":
+                return f"Write a {programming_language} function to reverse a string in-place without using built-in reverse methods."
+            elif current_difficulty == "Intermediate":
+                return f"Write a {programming_language} function that returns the indices of two numbers in an array that add up to a target sum (Two Sum). Aim for O(n) time complexity."
+            else:
+                return f"Write a {programming_language} class to implement an LRU Cache with `get` and `put` operations in O(1) time complexity."
+                
+        # Provide representative mock questions based on difficulty
+        if current_difficulty == "Beginner":
+            questions = [
+                f"Can you walk me through a basic programming project that you've built using your core skills in {role}?",
+                "Tell me about a time you had to learn a new technology quickly. How did you approach it?",
+                "What is a variable, and how do you manage local state in your applications?"
+            ]
+        elif current_difficulty == "Intermediate":
+            questions = [
+                "How do you design a database schema for a simple task management or user profiling application?",
+                "Describe a situation where you disagreed with a team member on a technical decision. How was it resolved?",
+                "Explain how you handle exceptions and log errors in a web service or production environment."
+            ]
+        else: # Advanced
+            questions = [
+                "Describe how you would design a highly scalable, distributed caching system for large user bases.",
+                "How do you analyze and optimize performance bottlenecks or database queries under high concurrency?",
+                "Tell me about the most complex technical challenge you've faced recently. What trade-offs did you make?"
+            ]
+        
+        # Pick one that isn't in chat history yet
+        for q in questions:
+            if not any(q in msg.get("text", "") for msg in chat_history):
+                return q
+        return questions[0]
+
+    if interview_format == "Technical Coding":
+        system_instruction = (
+            f"You are an elite Senior Staff {programming_language} Engineer conducting a technical coding interview. "
+            f"Your task is to design a single, crisp algorithmic or system design coding problem tailored to the candidate's resume and job description, matched to the difficulty level: {current_difficulty}. "
+            "Review the prior chat history to ensure you build on the conversation dynamically and DO NOT repeat any problem. Return ONLY the coding problem statement."
+        )
+        format_constraints = f"The problem MUST be a coding challenge strictly for {programming_language}. Give them a LeetCode style problem statement."
+    else:
+        system_instruction = (
+            f"You are an elite Technical Recruiter and Interview Designer. Your task is to design a single "
+            f"interview question tailored to the candidate's resume and target job description, matched to the "
+            f"difficulty level: {current_difficulty}. "
+            "Review the prior chat history to ensure you build on the conversation dynamically and DO NOT repeat any question or topic."
+        )
+        format_constraints = "Highly varied in QUESTION TYPE compared to previous questions in the conversation."
+
+    # Format history
+    history_str = ""
+    for msg in chat_history:
+        role_label = "Interviewer" if msg["role"] == "ai" else "Candidate"
+        history_str += f"{role_label}: {msg['text']}\n"
+
+    prompt = f"""
+    Target Role: {role}
+    Experience Level: {level}
+    Current Difficulty Target: {current_difficulty}
+    
+    Candidate Full Resume Text:
+    {resume_text}
+    
+    Target Job Description:
+    {job_description}
+
+    Prior Interview Conversation:
+    {history_str}
+
+    Design EXACTLY ONE distinct interview question matching the difficulty level: {current_difficulty}.
+    Ensure the question is:
+    - Custom-tailored to the resume and job description.
+    - {format_constraints}
+    - Specific to the target difficulty level:
+      - Beginner: Basic resume validations, simple concept definitions, or starter behavioral prompts.
+      - Intermediate: Scenario-based questions, coding design patterns, debugging, or API setup logic.
+      - Advanced: Architectural scaling, system design trade-offs, security, or complex engineering design constraints.
+    - Contextually progressive, transitioning from previous replies.
+    - Unique and doesn't repeat any topics or question types already asked consecutively.
+    Return only the question text as your entire response.
+    """
+
+    try:
+        response = safe_generate_content(
+            api_key=api_key,
+            prompt=prompt,
+            model_name="gemini-2.5-flash",
+            system_instruction=system_instruction
+        )
+        return response.text.strip()
+    except Exception as e:
+        logging.error(f"Error generating adaptive question: {e}")
+        # fallback
+        return f"Let's proceed with a question related to {role} development. Can you tell me about the best practices you follow for code review and testing at a {current_difficulty} level?"
+
+def text_to_speech_bytes(text: str) -> bytes:
+    """Converts text into audio bytes using local TTS via pyttsx3."""
+    import io
+    import os
+    import re
+    import tempfile
+
+    # Disable TTS in cloud environments where audio drivers are unavailable
+    if os.getenv("DISABLE_TTS", "false").lower() == "true":
+        logging.info("TTS is disabled via DISABLE_TTS env var.")
+        return b""
+
+    try:
+        import pyttsx3
+    except ImportError as e:
+        logging.error(f"pyttsx3 is not installed: {e}")
+        return b""
+
+    try:
+        clean_text = re.sub(r'[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]', '', text)
+        clean_text = clean_text.replace('*', '').replace('_', '').replace('`', '').strip()
+
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+            tmp_filepath = tmp_file.name
 
         engine = pyttsx3.init()
         engine.save_to_file(clean_text, tmp_filepath)
@@ -815,3 +1010,83 @@ def text_to_speech_bytes(text: str) -> bytes:
     except Exception as e:
         logging.error(f"Error in text-to-speech: {e}")
         return b""
+
+def detect_ai_content(api_key: str, question: str, answer: str, demo_mode: bool = False) -> dict:
+    """
+    Analyses a candidate's answer to detect if it was AI-generated or human-written.
+    Returns a dict with:
+        verdict       : "Human Written" | "Likely AI-Generated" | "Uncertain"
+        confidence    : int (0-100)
+        risk_level    : "Low" | "Medium" | "High"
+        signals       : list[str]  – observed linguistic signals
+        explanation   : str        – short human-readable explanation
+    """
+    if demo_mode:
+        return {
+            "verdict": "Human Written",
+            "confidence": 88,
+            "risk_level": "Low",
+            "signals": ["Natural sentence variation", "Minor grammatical imperfections", "Personalised examples"],
+            "explanation": "The response shows natural human writing patterns with personal examples and minor inconsistencies typical of spontaneous speech."
+        }
+
+    prompt = f"""
+You are an expert linguistic analyst specialising in AI-generated text detection.
+
+Carefully analyse the following interview answer and determine whether it was written/spoken naturally by a human candidate or is likely AI-generated (e.g. copied from ChatGPT, Gemini, etc.).
+
+Interview Question:
+{question}
+
+Candidate's Answer:
+{answer}
+
+Evaluate the following signals:
+1. Unnaturally perfect structure (bullet points, numbered steps, flawless grammar)
+2. Generic, textbook-style explanations without personal experience
+3. Overuse of transitional phrases like "Furthermore", "Moreover", "In conclusion"
+4. Lack of hesitation markers, filler words, or personal anecdotes
+5. Suspiciously comprehensive and well-balanced coverage of a complex topic
+6. Vocabulary and phrasing that is unusually formal for an interview setting
+
+Return a JSON object with EXACTLY these fields:
+{{
+  "verdict": "<Human Written | Likely AI-Generated | Uncertain>",
+  "confidence": <integer 0-100>,
+  "risk_level": "<Low | Medium | High>",
+  "signals": ["<signal 1>", "<signal 2>", "<signal 3>"],
+  "explanation": "<one concise sentence explaining your verdict>"
+}}
+
+Rules:
+- confidence 0-39  → Low risk
+- confidence 40-69 → Medium risk  
+- confidence 70-100 → High risk (if verdict is AI)
+- If verdict is Human Written, risk_level must be Low or Medium
+- Return ONLY valid JSON, no markdown.
+"""
+    try:
+        response = safe_generate_content(
+            api_key=api_key,
+            prompt=prompt,
+            model_name="gemini-2.5-flash",
+            generation_config={"response_mime_type": "application/json"}
+        )
+        raw = clean_json_string(response.text)
+        result = json.loads(raw)
+        # Ensure required keys exist
+        result.setdefault("verdict", "Uncertain")
+        result.setdefault("confidence", 50)
+        result.setdefault("risk_level", "Medium")
+        result.setdefault("signals", [])
+        result.setdefault("explanation", "Analysis inconclusive.")
+        return result
+    except Exception as e:
+        logging.error(f"AI content detection failed: {e}")
+        return {
+            "verdict": "Uncertain",
+            "confidence": 50,
+            "risk_level": "Medium",
+            "signals": [],
+            "explanation": "Analysis could not be completed."
+        }
